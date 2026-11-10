@@ -1,0 +1,10 @@
+[package]
+name = "fckv"
+version = "0.1.0"
+edition = "2021"
+
+# Zero external dependencies by design (docs/ARCHITECTURE.md §1).
+
+[profile.release]
+opt-level = 3
+debug = true
