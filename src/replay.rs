@@ -45,19 +45,27 @@ pub fn run(
     csv_window_us: u64,
     csv_path: Option<&str>,
 ) -> ReplayOutput {
-    // (session, start_blk, layers) -> seed of the creating put (integrity + recompute).
-    let mut seed_of: HashMap<(u64, u64, u32), u64> = HashMap::new();
+    // Per-block seed lookup: block (session, token_start = idx*bt) was created by the
+    // put whose [start_blk, start_blk+n_blk) range contains idx (integrity + recompute).
     let mut session_seeds: HashMap<u64, Vec<(u64, u64, u64)>> = HashMap::new(); // session -> (start_blk, n_blk_per_layer, seed)
     for r in records {
         if r.op == Op::Put {
-            seed_of.insert((r.session, r.start_blk, r.layers), r.seed);
             session_seeds
                 .entry(r.session)
                 .or_default()
                 .push((r.start_blk, r.n_blk as u64, r.seed));
         }
     }
-    let seed_of = Arc::new(seed_of);
+    let seed_for = |ss: &HashMap<u64, Vec<(u64, u64, u64)>>, session: u64, blk_idx: u64| -> u64 {
+        ss.get(&session)
+            .and_then(|v| {
+                v.iter()
+                    .find(|(sb, nb, _)| blk_idx >= *sb && blk_idx < sb + nb)
+            })
+            .map(|(_, _, s)| *s)
+            .unwrap_or(0)
+    };
+    let session_seeds = Arc::new(session_seeds);
 
     let bb = cfg.block_bytes();
     let bt = cfg.block_tokens;
@@ -74,7 +82,6 @@ pub fn run(
     for _ in 0..REPLAY_WORKERS {
         let shared = shared.clone();
         let engine = engine.clone();
-        let seed_of = seed_of.clone();
         let integrity = integrity.clone();
         let lat = lat.clone();
         handles.push(std::thread::spawn(move || loop {
@@ -92,6 +99,8 @@ pub fn run(
                 Job::Put(spec) => {
                     engine.put_batch(&spec).expect("put_batch failed");
                     shared.depth.fetch_sub(1, Ordering::SeqCst);
+                    // Wake the issue thread if it is parked on queue_cap backpressure.
+                    shared.cv.notify_all();
                 }
                 Job::Get(spec, t_issue) => {
                     let mut payload = vec![0u8; bb as usize];
@@ -107,6 +116,7 @@ pub fn run(
                         .expect("get_request failed");
                     lat.lock().unwrap().push(t_issue.elapsed().as_micros() as u64);
                     shared.depth.fetch_sub(1, Ordering::SeqCst);
+                    shared.cv.notify_all();
                 }
             }
         }));
@@ -160,7 +170,7 @@ pub fn run(
                         .get(&r.shared_with)
                         .and_then(|v| v.iter().find(|(s, _, _)| *s == 0))
                     {
-                        let (_, sw_n, sw_seed) = *ext;
+                        let (_, sw_n, _) = *ext;
                         for l in 0..r.layers {
                             for i in 0..sw_n {
                                 blocks.push(BlockKey {
@@ -168,20 +178,20 @@ pub fn run(
                                     layer: l,
                                     token_start: i * bt,
                                 });
-                                seeds.push(sw_seed);
+                                seeds.push(seed_for(&session_seeds, r.shared_with, i));
                             }
                         }
                     }
                 }
-                let own_seed = *seed_of.get(&(r.session, r.start_blk, r.layers)).unwrap_or(&0);
                 for l in 0..r.layers {
                     for i in 0..r.n_blk {
+                        let blk_idx = r.start_blk + i as u64;
                         blocks.push(BlockKey {
                             session: r.session,
                             layer: l,
-                            token_start: (r.start_blk + i as u64) * bt,
+                            token_start: blk_idx * bt,
                         });
-                        seeds.push(own_seed);
+                        seeds.push(seed_for(&session_seeds, r.session, blk_idx));
                     }
                 }
                 let spec = GetSpec {

@@ -353,17 +353,28 @@ impl BaselineEngine {
     }
 
     /// Write evicted blocks to SSD (churn path shared by put/promote/recompute).
-    fn spill(&self, evicted: Vec<(BlockKey, Vec<u8>)>, m_bytes: &mut Metrics) -> io::Result<()> {
+    /// Lock order discipline: metrics (leaf) released BEFORE ssd, ssd released
+    /// BEFORE hbm — nesting these locks through a guard temporary across this call
+    /// deadlocks against the read path (metrics+ssd ABBA), so spill owns its locks.
+    fn spill(&self, evicted: Vec<(BlockKey, Vec<u8>)>) -> io::Result<()> {
         if evicted.is_empty() {
             return Ok(());
         }
-        let mut ssd = self.ssd.lock().unwrap();
-        let mut invalidated = Vec::new();
-        for (k, bytes) in evicted {
-            m_bytes.physical_write_bytes += align_up(bytes.len() as u64, SECTOR);
-            invalidated.extend(ssd.write_block(k, &bytes)?);
+        let mut bytes_to_write = 0u64;
+        for (_, bytes) in &evicted {
+            bytes_to_write += align_up(bytes.len() as u64, SECTOR);
         }
-        drop(ssd);
+        {
+            let mut m = self.metrics.lock().unwrap();
+            m.physical_write_bytes += bytes_to_write;
+        }
+        let mut invalidated = Vec::new();
+        {
+            let mut ssd = self.ssd.lock().unwrap();
+            for (k, bytes) in evicted {
+                invalidated.extend(ssd.write_block(k, &bytes)?);
+            }
+        }
         let mut hbm = self.hbm.lock().unwrap();
         for k in &invalidated {
             hbm.invalidate(k.session, k.layer, k.token_start);
@@ -394,7 +405,7 @@ impl BaselineEngine {
                 Inserted::DoesNotFit(ev) => ev, // huge block: SSD-only
             }
         };
-        self.spill(evicted, &mut self.metrics.lock().unwrap())?;
+        self.spill(evicted)?;
         // DoesNotFit blocks live only on SSD: write them now.
         let mut on_ssd = {
             let mut dram = self.dram.lock().unwrap();
@@ -449,7 +460,7 @@ impl KvEngine for BaselineEngine {
                         }
                     }
                 };
-                self.spill(evicted, &mut self.metrics.lock().unwrap())?;
+                self.spill(evicted)?;
                 if !self.dram.lock().unwrap().map.contains_key(&key) {
                     // Landed on SSD directly (DoesNotFit).
                     let mut m = self.metrics.lock().unwrap();
@@ -476,7 +487,7 @@ impl KvEngine for BaselineEngine {
         let mut ssd_read_us: u64 = 0;
 
         // Phase 1: classify per block (hbm / dram / ssd / missing) — OQ-14 semantics.
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, PartialEq)]
         enum Src {
             Hbm,
             Dram,
@@ -485,24 +496,34 @@ impl KvEngine for BaselineEngine {
         }
         let mut srcs: Vec<Src> = Vec::with_capacity(spec.blocks.len());
         let mut ssd_len: u64 = 0;
+        // Locks acquired ONE AT A TIME (never nested): spill() acquires ssd→hbm, so
+        // nesting hbm+dram+ssd here would ABBA-deadlock against it under concurrency.
         {
             let hbm = self.hbm.lock().unwrap();
-            let dram = self.dram.lock().unwrap();
-            let ssd = self.ssd.lock().unwrap();
             for b in &spec.blocks {
                 let src = if hbm.get(b.session, b.layer, b.token_start).is_some() {
                     Src::Hbm
-                } else if dram.map.contains_key(b) {
-                    Src::Dram
-                } else if ssd.contains(b) {
-                    Src::Ssd
                 } else {
                     Src::Missing
                 };
-                if matches!(src, Src::Ssd) {
+                srcs.push(src);
+            }
+        }
+        {
+            let dram = self.dram.lock().unwrap();
+            for (i, b) in spec.blocks.iter().enumerate() {
+                if srcs[i] == Src::Missing && dram.map.contains_key(b) {
+                    srcs[i] = Src::Dram;
+                }
+            }
+        }
+        {
+            let ssd = self.ssd.lock().unwrap();
+            for (i, b) in spec.blocks.iter().enumerate() {
+                if srcs[i] == Src::Missing && ssd.contains(b) {
+                    srcs[i] = Src::Ssd;
                     ssd_len += align_up(bb, SECTOR);
                 }
-                srcs.push(src);
             }
         }
 
@@ -535,7 +556,19 @@ impl KvEngine for BaselineEngine {
                 (Src::Hbm, _) => {
                     let bytes = {
                         let hbm = self.hbm.lock().unwrap();
-                        hbm.get(b.session, b.layer, b.token_start).unwrap().to_vec()
+                        hbm.get(b.session, b.layer, b.token_start)
+                            .map(|x| x.to_vec())
+                    };
+                    let bytes = match bytes {
+                        Some(x) => x,
+                        None => {
+                            // TOCTOU: evicted between classify and serve -> recompute.
+                            recompute.push((idx, *b, spec.seed_by_block[idx]));
+                            let mut m = self.metrics.lock().unwrap();
+                            m.misses += 1;
+                            m.requested_blocks += 1;
+                            continue;
+                        }
                     };
                     let mut m = self.metrics.lock().unwrap();
                     m.hit_hbm += 1;
@@ -547,7 +580,18 @@ impl KvEngine for BaselineEngine {
                     let bytes = {
                         let mut dram = self.dram.lock().unwrap();
                         dram.touch(b);
-                        dram.get_bytes(b).unwrap().to_vec()
+                        dram.get_bytes(b).map(|x| x.to_vec())
+                    };
+                    let bytes = match bytes {
+                        Some(x) => x,
+                        None => {
+                            // TOCTOU: evicted between classify and serve -> recompute.
+                            recompute.push((idx, *b, spec.seed_by_block[idx]));
+                            let mut m = self.metrics.lock().unwrap();
+                            m.misses += 1;
+                            m.requested_blocks += 1;
+                            continue;
+                        }
                     };
                     let mut m = self.metrics.lock().unwrap();
                     m.hit_dram += 1;
@@ -570,7 +614,20 @@ impl KvEngine for BaselineEngine {
                         m.physical_read_bytes += align_up(bb, SECTOR);
                         m.logical_read_bytes += bb;
                         drop(m);
-                        ssd.read_block(b)?
+                        ssd.read_block(b)
+                    };
+                    let bytes = match bytes {
+                        Ok(bts) => bts,
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                            // TOCTOU: block reclaimed between classify and read →
+                            // same path as a clean miss (recompute + re-persist).
+                            recompute.push((idx, *b, spec.seed_by_block[idx]));
+                            let mut m = self.metrics.lock().unwrap();
+                            m.misses += 1;
+                            m.requested_blocks += 1;
+                            continue;
+                        }
+                        Err(e) => return Err(e),
                     };
                     ssd_read_us += t_read.elapsed().as_micros() as u64;
                     let mut m = self.metrics.lock().unwrap();
@@ -585,7 +642,7 @@ impl KvEngine for BaselineEngine {
                             Inserted::DoesNotFit(ev) => ev,
                         }
                     };
-                    self.spill(evicted, &mut self.metrics.lock().unwrap())?;
+                    self.spill(evicted)?;
                     self.hbm
                         .lock()
                         .unwrap()
