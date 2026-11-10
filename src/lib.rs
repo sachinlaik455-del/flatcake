@@ -8,6 +8,7 @@ pub mod hbm;
 pub mod types;
 pub mod util;
 pub mod workload;
+pub mod replay;
 
 // Component modules (added as their owning agents complete them):
 // pub mod gva;
