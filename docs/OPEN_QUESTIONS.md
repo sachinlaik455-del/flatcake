@@ -24,3 +24,14 @@ Each item: what the paper says (if anything), status, and the **[PROTOTYPE]** de
 | OQ-18 | Trace `claude-code-weka-0621` availability/licensing | HuggingFace dataset [33]; not verified in this environment. | **Do not download** (16 GB machine + license unverified). Synthetic workloads only; no claim of production-trace fidelity. |
 
 **Unresolved-by-design:** GPU/CUDA/GDS/cuFile specifics (Fig. 3 data path, §4 GPU staging window) are documented in `FUTURE_GDS_INTEGRATION.md`, not implemented at Level B.
+
+## Added at M2 (from EGM design review, 2026-11-11)
+
+| # | Question | Paper status | Prototype decision |
+|---|---|---|---|
+| OQ-19 | Placement precedence when Table-2 signals combine (shared∧one-shot; long-ctx∧short-reply; short-chat turn-1 vs stickiness) | Table 2 rows have no priority order; "short-turn chat → DRAM" conflicts with "turn=1 → one-shot → SSD" under append-stickiness | Frozen precedence in ARCHITECTURE §4: refcount>1→DRAM; ctx≥L_agent→SSD; reply≥τ→SSD; turn=1 unshared→SSD; turn>1∧reply<τ→DRAM. Appends inherit **SSD** scope medium (contiguity invariant, §3.4); appends to DRAM scopes re-evaluate fresh (DRAM grouping irrelevant). Explicitly a reference interpretation of a genuine paper tension. |
+| OQ-20 | Does an SSD-stuck short chat make Table-2 row 2 dead code? | Unresolved in paper | No: row 5 fires for DRAM-scope appends (shared histories, spilled-then-reused scopes); the paper's asymmetric-cost argument (§3.2) makes SSD-served short chats acceptable behavior, not a bug. |
+| OQ-9 (updated) | Index recovery/durability | Not discussed | **Cut from scope** (EGM #9): no recovery log; crash behavior = rebuild empty (documented limitation). |
+| OQ-11 (updated) | Multi-file chaining | Implied 1 file/scope, no size bound | **Deferred**: workload enforces session ≤ gpu_file_bytes; asserted in layout; chaining not implemented. |
+| OQ-16 (updated) | Index resizing | Unspecified | Fixed-capacity table, no resize; startup asserts unique blocks ≤ 0.7 × index_capacity. |
+| OQ-21 | Windows write path buffering | Paper: XFS + O_DIRECT (Linux-only) | `FILE_FLAG_NO_BUFFERING` via std `OpenOptionsExt::custom_flags` — real unbuffered I/O on NTFS (EGM critical #2); 4 KiB alignment mandatory (paper §4 alignment discipline maps 1:1). |
