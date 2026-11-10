@@ -126,7 +126,7 @@ pub struct FileRange {
 }
 
 /// All benchmark counters (field names = results JSON keys, ARCHITECTURE §11).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Metrics {
     pub hit_hbm: u64,
     pub hit_dram: u64,
