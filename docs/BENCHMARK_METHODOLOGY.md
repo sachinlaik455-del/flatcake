@@ -42,6 +42,10 @@ Staging-pool bytes are counted in `mem_used` for both; FlatCake simply never all
 7. Disk space check before each run (needs ~2× trace SSD bytes free).
 8. Stop conditions: run aborts on engine error; partial results are discarded, never reported.
 
+## Modeled-recompute caveat for LATENCY comparisons (observed in the vertical-slice demo)
+
+Baseline misses are handled as recompute with a **bookkeeping-only modeled cost** ( counter — no wall-clock sleep), while FlatCake SSD hits pay REAL disk I/O. Therefore p50/p99 latency comparisons are **not meaningful in FlatCake's favor or against it** when miss rates differ hugely: a baseline run with 39% misses shows artificially low latency because its recompute is instant bookkeeping, whereas FlatCake's real SSD hits take real milliseconds. The honest comparison axes at Level B are: **delivered hit rate, per-medium hit distribution, read/write amplification, physical-vs-logical op counts, and integrity** — exactly the mechanism behaviors the paper claims. Latency distributions are reported for completeness with this caveat attached (paper-fidelity note: the paper compares real GPU prefill on both sides; Level B has no GPU compute to model both sides equally).
+
 ## What we compare — and what we refuse to compare
 
 - Compared: hit-rate stability under load; read/write amplification; physical-vs-logical read counts (coalescing effect); latency distribution shift with load; staging-abort behavior (baseline) vs bounded-window waiting (FlatCake).

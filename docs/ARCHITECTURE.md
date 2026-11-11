@@ -119,7 +119,7 @@ block_tokens = 256               bytes_per_token = 32
 tau_tokens = 4096                l_agent_tokens = 65536
 gap_bridge_bytes = 65536         # Δgap (paper)
 ssd_high_watermark = 0.90        ssd_low_watermark = 0.70       # advisory (§5)
-ssd_workers = 2                  dram_workers = 2               clients = 0   # 0 = open-loop driver
+ssd_workers = 2                  dram_workers = 2               # open-loop driver is fixed at 32 replay workers
 queue_cap = 256                  staging_pool_bytes = 134217728 # baseline-only
 recompute_us_per_token = 8       # modeled:, identical both systems
 index_capacity = 1048576         # no resize; load factor 0.7 is a code constant
