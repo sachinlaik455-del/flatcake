@@ -23,7 +23,7 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 - Research docs completion: recorded in CHANGELOG entry below with epoch timestamp.
 
 ## Incident log
-(none yet)
+- **2026-11-11 (P2)**: Agent dispatches A7/A6 failed with "exceed quota limit" (after earlier 4x "user concurrency limit exceeded"). Account quota for sub-agents is exhausted. Resolution per directive §21: orchestrator absorbs A6 (workload doc), A7 (verification matrix), A8 (audit) assignments directly; specialist review coverage preserved via A1/A2 completed reports + EGM personas at freeze. No work lost — all assignments were fully specified.
 
 ## PHASE 2 LEDGER (implementation intensification)
 
