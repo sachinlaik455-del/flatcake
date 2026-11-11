@@ -24,3 +24,17 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 
 ## Incident log
 (none yet)
+
+## PHASE 2 LEDGER (implementation intensification)
+
+| Milestone | Status | Evidence | Notes |
+|---|---|---|---|
+| P2-M0 State recovery | ✅ COMPLETE | git log (7 commits intact), full test suite pre-MAS: 66/66; PHASE_2_STATUS.md written from actual repo inspection | No work overwritten; MAS module breaks lib build temporarily (its own file, agent mid-write) |
+| P2-M1 Agent activation | ✅ COMPLETE | 5 specialists dispatched (A1 fidelity, A2 architect, A6 workload-doc, A7 testing, A8 audit) + FC-MAS agent in flight + orchestrator = 7 participants | AGENT_OWNERSHIP.md enforced; no shared writable files |
+| P2-M2 Interface contracts | 🔜 | contracts frozen at Phase-0 (types.rs commit 92da2a6); A2 verifies as-built consistency | — |
+| P2-M3 Component tests | 🔜 | FC-GVA 33/33 ✅, FC-CIO 17/17 ✅, FC-MAS agent iterating | — |
+| P2-M4 Baseline/workloads | ✅ code complete | baseline 4/4 + replay 2/2 + A6 doc pending | — |
+| P2-M5 Vertical slice | 🔜 BLOCKED-ON-MAS | engine.rs written; declare + bench CLI + demo after MAS lands | — |
+| P2-M6 Reliability | 🔜 | A7 verification matrix (write now, run when green) | — |
+| P2-M7 Integration review | 🔜 | A1 + A8 + EGM persona | — |
+| P2-M8 Freeze | ⬜ | — | — |

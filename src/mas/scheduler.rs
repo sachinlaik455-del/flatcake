@@ -36,7 +36,7 @@
 use crate::types::Request;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 /// Monotonic microsecond clock: µs since an arbitrary epoch, non-decreasing.
@@ -204,7 +204,7 @@ impl Scheduler {
             if g.dram.len() + g.ssd.len() < self.cap {
                 break;
             }
-            g = self.cv.wait(g);
+            g = self.cv.wait(g).unwrap_or_else(PoisonError::into_inner);
         }
         let now = (self.clock)();
         g.seq += 1;
@@ -240,7 +240,7 @@ impl Scheduler {
                 self.cv.notify_all(); // freed capacity → wake blocked enqueuers
                 return Some(PoppedReq { req: e.p.req, wait_us: wait });
             }
-            g = self.cv.wait(g);
+            g = self.cv.wait(g).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
@@ -281,7 +281,7 @@ impl Scheduler {
                 self.cv.notify_all(); // freed capacity → wake blocked enqueuers
                 return Some(PoppedReq { req: p.req, wait_us: wait });
             }
-            g = self.cv.wait(g);
+            g = self.cv.wait(g).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
