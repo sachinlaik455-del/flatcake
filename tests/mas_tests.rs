@@ -286,21 +286,44 @@ fn backpressure_enqueue_blocks_until_pops_free_capacity() {
     // assertion, not an ordering assertion).
     assert!(done.1.recv_timeout(Duration::from_millis(200)).is_err());
 
-    // Pop one → worker 4 unblocks, enqueues, completes.
+    // Exact boundary invariant while parked: total queued == cap == 4 exactly,
+    // never 5. The depth check + insert are one atomic step under the lock and
+    // popped (in-flight) requests do not count toward the bound.
+    assert_eq!(s.queue_cap(), 4);
+    let st = s.stats();
+    assert_eq!(st.dram_queue_len + st.ssd_queue_len, 4);
+    assert_eq!(st.dram_queue_len, 4);
+
+    // Pop one → exactly one parked worker unblocks, enqueues and completes.
+    // Which of the two wins the freed slot is a genuine race (both wake), so
+    // only the fact that SOME worker completes is asserted here.
     let p = s.pop_dram().unwrap();
     assert_eq!(p.req.id, 0);
-    assert_eq!(done.1.recv_timeout(Duration::from_secs(5)).unwrap(), 4);
+    let first = done.1.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(first == 4 || first == 5);
+    // The woken worker refilled the freed slot: total is back to exactly cap
+    // (the other worker stays parked — only one insert fits).
+    let st = s.stats();
+    assert_eq!(st.dram_queue_len + st.ssd_queue_len, 4);
 
-    // Drain the rest; worker 5 unblocks during the drain and all 6 are queued.
+    // Drain the rest; the other worker unblocks during the drain and all 6
+    // requests end up queued + delivered.
     let mut ids = vec![p.req.id];
     while ids.len() < 6 {
         let p = s.pop_dram().expect("all 6 enqueues must complete");
         ids.push(p.req.id);
     }
-    assert!(done.1.recv_timeout(Duration::from_secs(5)).is_err()); // both done
     for w in workers {
-        w.join().unwrap();
+        w.join().unwrap(); // both enqueues completed → senders dropped
     }
+    // Collect any completion token still buffered; the loop ends with
+    // Disconnected once the channel is empty, so this cannot hang.
+    let mut completions = vec![first];
+    while let Ok(id) = done.1.recv_timeout(Duration::from_millis(100)) {
+        completions.push(id);
+    }
+    completions.sort_unstable();
+    assert_eq!(completions, vec![4, 5], "both blocked enqueues completed");
     ids.sort_unstable();
     assert_eq!(ids, (0..6).collect::<Vec<u64>>());
     let st = s.stats();

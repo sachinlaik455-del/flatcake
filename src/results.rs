@@ -52,10 +52,10 @@ pub fn write_run_json(
     // Metrics (field names = Metrics fields = results-JSON keys).
     // Metrics object built manually for mixed int/float field types.
     let mut parts: Vec<String> = Vec::new();
-    let mut kv_u = |parts: &mut Vec<String>, k: &str, v: u64| {
+    let kv_u = |parts: &mut Vec<String>, k: &str, v: u64| {
         parts.push(format!("\"{k}\":{v}"));
     };
-    let mut kv_f = |parts: &mut Vec<String>, k: &str, v: f64| {
+    let kv_f = |parts: &mut Vec<String>, k: &str, v: f64| {
         parts.push(format!("\"{k}\":{v}"));
     };
     kv_f(&mut parts, "delivered_hit_rate", m.delivered_hit_rate());

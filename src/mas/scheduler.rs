@@ -32,6 +32,16 @@
 //! the engine only enqueues while running). `readmit` after shutdown is
 //! likewise a no-op. Items still queued stay visible in `stats()` but are
 //! never dispatched.
+//!
+//! Backpressure boundary (documented, exact): `enqueue` blocks while
+//! `dram.len() + ssd.len() >= queue_cap`. The depth check and the insert are
+//! one atomic step under the lock (a woken enqueuer re-checks the predicate
+//! before inserting; a pop removes its item under the same lock before
+//! notifying), so the TOTAL queued across both queues NEVER exceeds
+//! `queue_cap` — no off-by-one. The bound counts requests sitting in the
+//! queues only: popped (in-flight, worker-owned) requests are excluded, which
+//! matches ARCHITECTURE §9 — the open-loop issue thread blocks exactly when
+//! the queue holds `queue_cap` requests.
 
 use crate::types::Request;
 use std::cmp::Reverse;
@@ -192,9 +202,12 @@ impl Scheduler {
     /// rule, OQ-14); the scheduler is a pure control plane and routes by the
     /// flag as instructed.
     ///
-    /// BLOCKS on the condvar while total queued >= queue_cap (backpressure,
-    /// ARCHITECTURE §3/§9); wakes when pops/cancels free capacity. After
-    /// [`Scheduler::shutdown`] this is a documented no-op (request dropped).
+    /// BLOCKS on the condvar while total queued (`dram.len() + ssd.len()`)
+    /// >= queue_cap (backpressure, ARCHITECTURE §3/§9); wakes when pops/cancels
+    /// free capacity. The predicate check and insert are one atomic step under
+    /// the lock, so total queued never exceeds queue_cap (in-flight, popped
+    /// requests do not count toward the bound). After [`Scheduler::shutdown`]
+    /// this is a documented no-op (request dropped).
     pub fn enqueue(&self, req: Request, ssd: bool) {
         let mut g = self.lock();
         loop {

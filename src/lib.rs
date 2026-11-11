@@ -13,6 +13,7 @@ pub mod cio;
 pub mod replay;
 pub mod results;
 pub mod mas;
+pub mod engine;
 
 // Component modules (added as their owning agents complete them):
 // pub mod gva;

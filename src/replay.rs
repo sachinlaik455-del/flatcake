@@ -45,6 +45,33 @@ pub fn run(
     csv_window_us: u64,
     csv_path: Option<&str>,
 ) -> ReplayOutput {
+    // Startup guard (OQ-16 / ARCHITECTURE §3): unique blocks must fit the
+    // fixed-capacity Level-1 index at its documented 0.7 load factor.
+    {
+        let mut unique: std::collections::HashSet<(u64, u32, u64)> = Default::default();
+        for r in records {
+            if r.op == Op::Put {
+                for l in 0..r.layers {
+                    for i in 0..r.n_blk {
+                        unique.insert((
+                            r.session,
+                            l,
+                            (r.start_blk + i as u64) * cfg.block_tokens,
+                        ));
+                    }
+                }
+            }
+        }
+        let cap = cfg.index_capacity;
+        if (unique.len() as f64) > 0.7 * cap as f64 {
+            panic!(
+                "trace needs {} unique blocks > 0.7 x index_capacity ({}); raise index_capacity or shrink the workload",
+                unique.len(),
+                cap
+            );
+        }
+    }
+
     // Per-block seed lookup: block (session, token_start = idx*bt) was created by the
     // put whose [start_blk, start_blk+n_blk) range contains idx (integrity + recompute).
     let mut session_seeds: HashMap<u64, Vec<(u64, u64, u64)>> = HashMap::new(); // session -> (start_blk, n_blk_per_layer, seed)
