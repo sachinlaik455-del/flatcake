@@ -30,7 +30,7 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | P2-M0 State recovery | ✅ COMPLETE | git log (7 commits intact), full test suite pre-MAS: 66/66; PHASE_2_STATUS.md written from actual repo inspection | No work overwritten; MAS module breaks lib build temporarily (its own file, agent mid-write) |
-| P2-M1 Agent activation | ✅ COMPLETE | 5 specialists dispatched (A1 fidelity, A2 architect, A6 workload-doc, A7 testing, A8 audit) + FC-MAS agent in flight + orchestrator = 7 participants | AGENT_OWNERSHIP.md enforced; no shared writable files |
+| P2-M1 Agent activation | ✅ COMPLETE (with documented limitation) | Platform rejected 4/5 specialists: **hard concurrency limit = 2 agents** (error: user concurrency limit exceeded). Active: FC-MAS + A2. QUEUED with full assignments: A1, A6, A7, A8 — resumed serially as slots free (directive §3 explicitly permits queued agents; §21 blocker policy applied) | Incident recorded; queue managed by orchestrator |
 | P2-M2 Interface contracts | 🔜 | contracts frozen at Phase-0 (types.rs commit 92da2a6); A2 verifies as-built consistency | — |
 | P2-M3 Component tests | 🔜 | FC-GVA 33/33 ✅, FC-CIO 17/17 ✅, FC-MAS agent iterating | — |
 | P2-M4 Baseline/workloads | ✅ code complete | baseline 4/4 + replay 2/2 + A6 doc pending | — |

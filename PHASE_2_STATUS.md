@@ -26,15 +26,17 @@ Stack (Phase 1 selection, unchanged): **std-only Rust** lib+bin crate `fckv` + P
 
 ## Agent assignments (Phase 2)
 
+**Concurrency reality (measured, 2026-11-11):** the account enforces a hard limit of **2 concurrent sub-agents** — four of five specialists were rejected with 'user concurrency limit exceeded' on dispatch. The directive's Phase-1 max-2 rule was a plan constraint, not a style choice. Execution therefore runs as a **serial queue**: two agents active at a time, remaining agents QUEUED with explicit assignments (directive §3 permits exactly this). All assignments are preserved; nothing is lost.
+
 | Agent | Role | Owns (exclusive) | Depends on | Status |
 |---|---|---|---|---|
-| FC-MAS (in flight) | Scheduler module | src/mas/**, tests/mas_tests.rs | frozen types | IMPLEMENTING |
-| A1 fidelity | Paper-fidelity review | docs/PHASE_2_PAPER_FIDELITY.md | read-only code access | DISPATCHED |
-| A2 architect | Contract verification + integration doc | docs/PHASE_2_ARCHITECTURE.md | read-only code access | DISPATCHED |
-| A6 workload-doc | Workload/baseline doc | docs/PHASE_2_WORKLOADS.md | read-only | DISPATCHED |
-| A7 testing | Verification matrix + cross-component integration tests | tests/p2_matrix_tests.rs, docs/PHASE_2_TEST_REPORT.md | build green (MAS) to RUN; write now | DISPATCHED |
-| A8 audit | Performance + correctness audit, profiles | docs/PHASE_2_AUDIT.md, scripts/** | build green to profile | DISPATCHED |
-| orchestrator | Integration, engine, bench CLI, demo, vertical slice, ledger | src/engine.rs, src/main.rs, lib.rs, docs, git | MAS landing | ACTIVE |
+| FC-MAS | Scheduler module | src/mas/**, tests/mas_tests.rs | frozen types | IMPLEMENTING (slot 1) |
+| A2 architect | Contract verification + as-built doc | docs/PHASE_2_ARCHITECTURE.md | read-only code access | RUNNING (slot 2) |
+| A1 fidelity | Paper-fidelity review | docs/PHASE_2_PAPER_FIDELITY.md | read-only | **QUEUED** (resume when a slot frees) |
+| A6 workload-doc | Workload/baseline fairness doc | docs/PHASE_2_WORKLOADS.md | read-only | **QUEUED** |
+| A7 testing | Verification matrix + integration tests | tests/p2_matrix_tests.rs, docs/PHASE_2_TEST_REPORT.md | build green (MAS) to run | **QUEUED** |
+| A8 audit | Performance + correctness audit | docs/PHASE_2_AUDIT.md, scripts/** | build green to profile | **QUEUED** |
+| orchestrator | Integration, engine, bench CLI, demo, vertical slice, ledger, queue management | src/engine.rs, src/main.rs, lib.rs, docs, git | MAS landing | ACTIVE |
 
 Conflict rule: no two agents share a writable file. Cross-module defects found by A1/A7/A8 are REPORTED to the orchestrator, never self-fixed in another agent's file.
 
