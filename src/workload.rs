@@ -199,6 +199,11 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
     }
     let session_bytes_total = match p.regime.as_str() {
         "oneshot" => p.sessions * tok_per_turn * p.layers as u64 * p.bytes_per_token,
+        "shift" => {
+            let agentic = p.sessions / 2;
+            (p.sessions - agentic) * tok_per_turn * p.layers as u64 * p.bytes_per_token
+                + agentic * p.turns * tok_per_turn * p.layers as u64 * p.bytes_per_token
+        }
         _ => p.sessions * p.turns * tok_per_turn * p.layers as u64 * p.bytes_per_token,
     };
     if session_bytes_total > p.ssd_budget_bytes {
@@ -294,6 +299,58 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
                         0,
                         0,
                     ));
+                }
+            }
+            written
+        }
+        "shift" => {
+            // Regime-shift trace (M11): first half of the timeline is one-shot
+            // sessions; agentic sessions activate only afterwards.
+            let mut written = 0u64;
+            let agentic = p.sessions / 2;
+            let oneshot_n = p.sessions - agentic;
+            // Phase 1: one-shot sessions (including reuse_rate shared-prompt re-gets).
+            for s in 2..=oneshot_n + 1 {
+                let seed = splitmix64(&mut st);
+                let reply = 300;
+                let ctx = tok_per_turn * p.layers as u64;
+                recs.push(put_record(
+                    0, s, 1, p.layers, 0, p.blocks_per_turn, 0, reply, ctx, seed,
+                ));
+                written += p.blocks_per_turn as u64 * p.layers as u64 * block_bytes;
+                let r = (splitmix64(&mut st) % 1000) as f64 / 1000.0;
+                if r < p.reuse_rate {
+                    recs.push(get_record(
+                        0, s, 1, p.layers, p.shared_blocks, 1, reply, shared_ctx, 0, 0,
+                    ));
+                }
+            }
+            // Phase 2: agentic sessions activate (round-robin turns after all puts).
+            for turn in 1..=p.turns {
+                for s in oneshot_n + 2..=p.sessions + 1 {
+                    let reply = 500;
+                    let ctx_after = turn * tok_per_turn * p.layers as u64;
+                    if turn > 1 {
+                        let own_blocks = ((turn - 1) * p.blocks_per_turn as u64) as u32;
+                        let ctx = (turn - 1) * tok_per_turn * p.layers as u64;
+                        recs.push(get_record(
+                            0, s, turn, p.layers, own_blocks, 0, reply, ctx, 0, 1,
+                        ));
+                    }
+                    let seed = splitmix64(&mut st);
+                    recs.push(put_record(
+                        0,
+                        s,
+                        turn,
+                        p.layers,
+                        (turn - 1) * p.blocks_per_turn as u64,
+                        p.blocks_per_turn,
+                        0,
+                        reply,
+                        ctx_after,
+                        seed,
+                    ));
+                    written += p.blocks_per_turn as u64 * p.layers as u64 * block_bytes;
                 }
             }
             written

@@ -16,6 +16,7 @@
 |---|---|---|
 | OS | Windows 11, build 10.0.26300 (24H2+) | Target platform per directive |
 | Python | **3.14.7** (`python`, `py`) | Workload generation, orchestration, plots |
+| matplotlib | **3.11.2** (pip install, ~40 MB, added 2026-11-11 after audit — needed for M9 plots; sole Python dependency) | Result charts |
 | Git | 2.55.0.windows.5 | Version control enabled |
 | Rust | **not installed** → installing rustup + `stable-x86_64-pc-windows-gnu` minimal profile (~400 MB disk) | Core engine language |
 | C/C++ | gcc/g++ 6.3.0 MinGW.org only (32-bit heritage, 2016-era) | **Rejected as core language**: unsafe thread/atomic support for a concurrency-heavy storage engine; installing MSVC Build Tools (~4 GB) disproportionate for Level B |
