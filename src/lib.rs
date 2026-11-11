@@ -11,6 +11,7 @@ pub mod workload;
 pub mod gva;
 pub mod cio;
 pub mod replay;
+pub mod results;
 
 // Component modules (added as their owning agents complete them):
 // pub mod gva;
