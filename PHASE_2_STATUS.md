@@ -43,3 +43,21 @@ Conflict rule: no two agents share a writable file. Cross-module defects found b
 ## Phase 2 acceptance criteria (from the directive §22, mapped)
 
 1–2. State recovered; ≥6 agents activated (5 dispatched + MAS in flight + orchestrator). 3. Ownership/interfaces documented (this file + AGENT_OWNERSHIP.md + A2's doc). 4–5. FC-GVA/FC-CIO/FC-MAS real implementations with passing tests (2 done, 1 in flight). 6. FC-CIO does real local SSD I/O with payload-reconstruction tests ✓. 7–8. Baseline retrieval correct ✓, traces deterministic ✓. 9–10. Engine end-to-end lifecycle + safe reclamation → vertical slice (P2-M5) + A7 tests. 11. Bounded memory/queues verified by A7. 12–13. Builds on Windows 11 ✓; reproducible commands in every report. 14. Deviations documented (ledger D1–D24 + A1's report). 15–16. Independent audit (A8 + EGM persona at P2-M7) + ledger accuracy.
+
+
+## Phase 2 closeout (P2-M8, updated after freeze)
+
+| Milestone | Final status |
+|---|---|
+| P2-M0 state recovery | DONE — no Phase-1 work overwritten (7 commits preserved, now 13+) |
+| P2-M1 agent activation | DONE with measured platform constraints: concurrency limit = 2 agents, then sub-agent QUOTA exhausted (incident log). Active contributors: FC-MAS agent, A1, A2 + orchestrator; A6/A7/A8 assignments absorbed by the orchestrator with full deliverables |
+| P2-M2 contracts | DONE — A2's as-built verification (17 engine compile errors found empirically, all fixed) |
+| P2-M3 components | DONE — GVA 33/33, CIO 17/17, MAS 15/15 (after orchestrator defect report; agent root-caused its boundary) |
+| P2-M4 baseline+workloads | DONE — 4/4 + 2/2 tests; PHASE_2_WORKLOADS.md with fairness audit |
+| P2-M5 vertical slice | DONE — 2/2 engine tests; `fckv demo` 82.5% vs 35.3%, integrity 0/0 |
+| P2-M6 reliability | DONE — 7/7 matrix tests (90 total), PHASE_2_TEST_REPORT.md, 6 defects found & resolved |
+| P2-M7 integration review | DONE — A1 fidelity report (4 findings, all fixed), PHASE_2_AUDIT.md with measured I/O calibration (19x coalescing ceiling; 52x page-cache artifact proof) |
+| P2-M8 freeze | DONE — build green, 90/90 tests, README with exact commands, this status |
+
+Acceptance criteria (directive §22): 1✓ 2✓(constraint-documented) 3✓ 4✓ 5✓ 6✓ 7✓ 8✓ 9✓ 10✓ 11✓ 12✓ 13✓ 14✓ 15✓ 16✓.
+Known deviations/limitations: modeled-recompute latency caveat (methodology doc); T19 statistical-shape asserts deferred (documented in WORKLOADS.md); sub-agent quota blocked further delegation (absorbed).
