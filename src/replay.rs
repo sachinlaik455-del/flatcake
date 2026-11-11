@@ -199,6 +199,7 @@ pub fn run(
                     arrival_ts_us: r.ts_us,
                     blocks,
                     seed_by_block: seeds,
+                    signals: fckv_signals(r),
                 };
                 issued.fetch_add(1, Ordering::SeqCst);
                 enqueue(&shared, cfg, Job::Get(spec, Instant::now()));
@@ -245,6 +246,18 @@ pub fn run(
         elapsed_s: t0.elapsed().as_secs_f64(),
         integrity_failures,
         requests_issued: issued.load(Ordering::SeqCst),
+    }
+}
+
+/// Write-time signals of the requesting session (from the trace record) for
+/// recompute re-persist placement (engine_api::GetSpec.signals).
+fn fckv_signals(r: &TraceRecord) -> crate::types::PlacementSignals {
+    crate::types::PlacementSignals {
+        session: r.session,
+        refcount: if r.shared == 1 { 2 } else { 1 },
+        turn: r.turn,
+        reply_tokens: r.reply_tokens,
+        ctx_tokens: r.ctx_tokens,
     }
 }
 

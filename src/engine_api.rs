@@ -35,13 +35,16 @@ impl PutSpec {
 
 /// One get request: blocks in layer-major order (`seed_by_block` is parallel — the
 /// seed of the put that created each block; used for recompute re-persist; replay
-/// does integrity verification independently).
+/// does integrity verification independently). `signals` are the requesting
+/// session's write-time signals, used ONLY for recompute re-persist placement
+/// when the block's scope was reclaimed (ARCHITECTURE §8 symmetric miss model).
 #[derive(Clone, Debug)]
 pub struct GetSpec {
     pub id: u64,
     pub arrival_ts_us: u64,
     pub blocks: Vec<BlockKey>,
     pub seed_by_block: Vec<u64>,
+    pub signals: crate::types::PlacementSignals,
 }
 
 /// Uniform engine interface ( FlatCake engine + baseline).

@@ -4,6 +4,7 @@
 use fckv::baseline::BaselineEngine;
 use fckv::config::Config;
 use fckv::engine_api::{GetSpec, KvEngine, PutSpec};
+use fckv::types::PlacementSignals;
 use fckv::util::payload_fill;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -58,6 +59,7 @@ fn put_then_get_roundtrip_hits_dram_or_ssd_with_correct_bytes() {
         arrival_ts_us: 0,
         blocks,
         seed_by_block: seeds,
+        signals: PlacementSignals { session: 2, refcount: 1, turn: 1, reply_tokens: 0, ctx_tokens: 0 },
     };
     e.get_request(&gspec, &mut |_i, bytes| {
         assert_eq!(bytes.len(), cfg.block_bytes() as usize);
@@ -98,6 +100,7 @@ fn lru_eviction_spills_to_ssd_and_reads_back_correctly() {
         arrival_ts_us: 0,
         blocks,
         seed_by_block: seeds,
+        signals: PlacementSignals { session: 9, refcount: 1, turn: 1, reply_tokens: 0, ctx_tokens: 0 },
     };
     let mut checked = 0usize;
     e.get_request(&gspec, &mut |i, bytes| {
@@ -140,6 +143,7 @@ fn staging_exhaustion_aborts_and_recomputes() {
         arrival_ts_us: 0,
         blocks,
         seed_by_block: seeds,
+        signals: PlacementSignals { session: 2, refcount: 1, turn: 1, reply_tokens: 0, ctx_tokens: 0 },
     };
     e.get_request(&gspec, &mut |_i, _b| {}).unwrap();
     let m = e.snapshot();
@@ -179,6 +183,7 @@ fn fifo_bucket_reclaim_invalidates_across_sessions() {
         arrival_ts_us: 0,
         blocks,
         seed_by_block: seeds,
+        signals: PlacementSignals { session: 2, refcount: 1, turn: 1, reply_tokens: 0, ctx_tokens: 0 },
     };
     e.get_request(&gspec, &mut |_i, _b| {}).unwrap();
     let m = e.snapshot();
