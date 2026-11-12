@@ -203,6 +203,14 @@ impl FlatCakeEngine {
 
     /// Advisory watermark reclamation (ARCHITECTURE §5) + reclaimed-scope detach.
     fn maybe_reclaim(&self) {
+        // P3 order (medium_aware): flush deferred frees -> demote cold DRAM
+        // blocks (cheaper than losing whole scopes) -> session reclaims only if
+        // STILL over their watermarks -> flush again + purge dead bookkeeping.
+        // With eviction_policy = session_extents (paper default), demote_pass
+        // no-ops and the behavior is identical to P1/P2.
+        self.flush_pending_frees();
+        self.demote_pass(self.now_us());
+        self.flush_pending_frees();
         let mut m = self.core.metrics.lock().unwrap();
         let dram_usage = self.core.arena.used_bytes();
         if (dram_usage as f64)
@@ -244,10 +252,6 @@ impl FlatCakeEngine {
                 }
             }
         }
-        // P3: return migration-deferred extents, then optionally demote cold
-        // DRAM blocks before falling back to whole-session reclamation.
-        self.flush_pending_frees();
-        self.demote_pass(self.now_us());
         self.flush_pending_frees();
         self.purge_dead_scope_bookkeeping();
     }
@@ -456,10 +460,12 @@ impl FlatCakeEngine {
             let heat = self.core.heat.lock().unwrap();
             let mut v: Vec<(u64, BlockKey, u64, u64)> = db
                 .iter()
-                .filter(|(_, (k, _, _))| {
-                    heat.get(k)
-                        .map(|(c, _)| *c < self.core.cfg.adaptive_k)
-                        .unwrap_or(true)
+                .filter(|(_, (k, len, last))| {
+                    let (c, hlast) = heat.get(k).copied().unwrap_or((0, 0));
+                    let recent = now.saturating_sub(hlast.max(*last)) / 1000
+                        < self.core.cfg.migration_cooldown_ms;
+                    let _ = len;
+                    c < self.core.cfg.adaptive_k || !recent
                 })
                 .map(|(&off, (k, len, last))| (*last, *k, off, *len))
                 .collect();
@@ -515,9 +521,13 @@ impl FlatCakeEngine {
                 .unwrap()
                 .push(PendingFree::Dram { off, len, session: key.session });
             db.remove(&off);
+            self.core
+                .last_migrated
+                .lock()
+                .unwrap()
+                .insert(key, now);
             freed += len;
             budget -= 1;
-            let _ = now;
             let mut m = self.core.metrics.lock().unwrap();
             m.migr_demotions += 1;
             m.migr_bytes_moved += len;
@@ -978,31 +988,54 @@ impl KvEngine for FlatCakeEngine {
                     }
                 }
             }
-            // Promotion: hottest delivered SSD blocks first, budget-capped,
-            // using the bytes already in hand (zero extra SSD reads).
+            // Promotion: hottest blocks with SSD backing, budget-capped. Bytes
+            // come from wherever they already are — this request's delivery or
+            // the hbm window — so promotion costs zero extra SSD reads.
             let mut done = 0u64;
-            let candidates: Vec<(u64, usize, Gva, BlockKey)> = {
+            let candidates: Vec<(u64, BlockKey)> = {
                 let heat = self.core.heat.lock().unwrap();
-                let mut v: Vec<(u64, usize, Gva, BlockKey)> = match enqueued.as_ref() {
-                    Some((true, m)) => m
-                        .iter()
-                        .filter_map(|(idx, gva)| {
-                            let k = spec.blocks[*idx];
-                            heat.get(&k).map(|(c, _)| (*c, *idx, *gva, k))
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| format!("{:?}", a.3).cmp(&format!("{:?}", b.3))));
+                let mut v: Vec<(u64, BlockKey)> = heat
+                    .iter()
+                    .filter(|(k, _)| {
+                        matches!(self.core.index.lookup(k), Lookup::Hit(ref g) if g.is_ssd())
+                    })
+                    .filter(|(_, (c, _))| *c >= self.core.cfg.adaptive_k)
+                    .map(|(k, (c, _))| (*c, *k))
+                    .collect();
+                v.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| format!("{:?}", a.1).cmp(&format!("{:?}", b.1))));
                 v
             };
-            for (_c, idx, gva, k) in candidates {
+            for (_c, k) in candidates {
                 if done >= self.core.cfg.migration_max_per_get {
                     break;
                 }
-                let Some(bytes) = out[idx].as_ref() else { continue };
-                if self.promote_one(&k, gva, bytes, now) {
-                    done += 1;
+                // Source 1: bytes delivered in this very request.
+                let from_req = enqueued.as_ref().and_then(|(is_ssd, m)| {
+                    if !*is_ssd {
+                        return None;
+                    }
+                    m.iter()
+                        .find(|(idx, _)| spec.blocks[*idx] == k)
+                        .and_then(|(idx, gva)| out[*idx].as_ref().map(|b| (*gva, b.clone())))
+                });
+                if let Some((gva, bytes)) = from_req {
+                    if self.promote_one(&k, gva, &bytes, now) {
+                        done += 1;
+                    }
+                    continue;
+                }
+                // Source 2: hbm window (same bytes; backing store still SSD).
+                let from_hbm = {
+                    let hbm = self.core.hbm.lock().unwrap();
+                    hbm.get(k.session, k.layer, k.token_start)
+                        .map(|b| b.to_vec())
+                };
+                if let Some(bytes) = from_hbm {
+                    if let Lookup::Hit(g) = self.core.index.lookup(&k) {
+                        if self.promote_one(&k, g, &bytes, now) {
+                            done += 1;
+                        }
+                    }
                 }
             }
         }
