@@ -183,6 +183,9 @@ impl FlatCakeEngine {
                 let mut session_cursor: HashMap<u64, (u32, u64)> = HashMap::new();
                 let bb = cfg.block_bytes();
                 for (k, g) in live {
+                    if !g.is_ssd() {
+                        continue; // DRAM bytes are not crash-survivable
+                    }
                     if let Ok(slot) = core.index.insert_pending(&k) {
                         core.index.publish(slot, g);
                         replayed += 1;
@@ -421,7 +424,7 @@ impl FlatCakeEngine {
     fn finish_deduped_get(
         &self,
         spec: &GetSpec,
-        mut out: Vec<Option<Vec<u8>>>,
+        out: Vec<Option<Vec<u8>>>,
         mut counted: Vec<bool>,
         pinned_scopes: Vec<u64>,
         sink: &mut dyn FnMut(usize, &[u8]),
@@ -1154,8 +1157,10 @@ impl KvEngine for FlatCakeEngine {
                 Condvar::new(),
             ));
             if *is_ssd {
+                eprintln!("P4T id={id} fp-check ssd");
                 let mut inflight = self.core.inflight.lock().unwrap();
                 if let Some(leader) = inflight.get(&fp).cloned() {
+                    eprintln!("P4T id={id} follower-attach");
                     drop(inflight);
                     let (slot_lock, cv) = &*leader;
                     let mut guard = slot_lock.lock().unwrap();
@@ -1165,6 +1170,7 @@ impl KvEngine for FlatCakeEngine {
                         guard = g;
                     }
                     let worker_err = guard.err.clone();
+                    drop(guard); // release the slot mutex before re-locking it in the merge
                     // Merge by GVA match (audit item 12): the follower's block
                     // order differs whenever its hbm/DRAM/recompute prefix
                     // differs; positional reuse would be wrong.
@@ -1192,7 +1198,6 @@ impl KvEngine for FlatCakeEngine {
                             }
                         }
                     }
-                    drop(guard);
                     if worker_err.is_some() || !self.running.load(Ordering::SeqCst) {
                         for (idx, _) in map.iter() {
                             if out[*idx].is_none() && !counted[*idx] {
@@ -1228,9 +1233,11 @@ impl KvEngine for FlatCakeEngine {
                         enqueued.as_ref(),
                     );
                 }
+                eprintln!("P4T id={id} leader-insert");
                 inflight.insert(fp, slot_arc.clone());
             }
             self.core.slots.lock().unwrap().insert(id, slot_arc.clone());
+            eprintln!("P4T id={id} enqueue");
             self.core.scheduler.enqueue(req, *is_ssd);
             let (slot_lock, cv) = &*slot_arc;
             let mut guard = slot_lock.lock().unwrap();
@@ -1462,10 +1469,14 @@ fn ssd_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>, reader: &mut Read
         match core.scheduler.pick_ssd() {
             None => break,
             Some(PoppedReq { req, .. }) => {
+                eprintln!("P4T ssd-worker pick req={}", req.id);
                 let t0 = Instant::now();
                 let slot_arc = match core.slots.lock().unwrap().get(&req.id).cloned() {
                     Some(s) => s,
-                    None => continue,
+                    None => {
+                        eprintln!("P4T ssd-worker req={} NO SLOT", req.id);
+                        continue;
+                    }
                 };
                 let bb = core.cfg.block_bytes();
                 let mut orig: Vec<usize> = Vec::with_capacity(req.blocks.len());
@@ -1553,7 +1564,7 @@ fn parse_log_line(line: &str) -> Option<LogRec> {
         let kpos = i + 5;
         let kend = line[kpos..].find(']').map(|j| kpos + j)?;
         let k = parse_key(&line[kpos..kend])?;
-        let gpos = line.find("\"g\":").map(|j| j + 5)?;
+        let gpos = line.find("\"g\":").map(|j| j + 4)?;
         let gend = line[gpos..].find('}').map(|j| gpos + j)?;
         let g = line[gpos..gend].trim().parse::<u64>().ok()?;
         return Some(LogRec::Pub(k, Gva(g)));
