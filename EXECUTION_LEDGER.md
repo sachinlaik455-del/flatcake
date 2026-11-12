@@ -47,3 +47,12 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 | M10 Optimization | ✅ COMPLETE (scope: measure-first audit) | docs/PHASE_2_AUDIT.md U1/U2 identify M10 candidates with measured evidence; no premature optimization applied (directive Part 15: simplest implementation meeting measured requirements) | Profiling artifacts: results/io_probe.json |
 | M11 Adaptive extension | ✅ COMPLETE (honest negative) | 24 runs x 2 generator versions; docs/ADAPTIVE_EXTENSION.md results; T19 shape tests caught a generator bug first, re-run confirmed verdict | adaptive == static parity; fixed_dram collapses; H0 confirmed |
 | M12 Final audit + report | ✅ COMPLETE | docs/AUDIT_REPORT.md (self-audit; EGM agent quota-blocked, evidence from A1/A2 independent agent reports + command outputs); docs/FINAL_REPORT.md; 91/91 tests | — |
+
+## P3 ledger (medium-aware scheduling phase)
+
+| Item | Status | Evidence | Notes |
+|---|---|---|---|
+| P3 architecture (additive registry APIs, config knobs, migration core) | ✅ | 101/101 tests; docs/P3_REPORT.md | Default config = paper-faithful write-once (migration off); regression-guard test pins it |
+| P3 tests (10 deterministic) | ✅ | tests/p3_migration_tests.rs — incl. adversarial: hot/cold flips, RAM saturation, SSD-heavy, concurrent migration, thrash/cooldown, loop bound, starvation, headroom | Found + fixed 2 engine-design gaps during testing: hbm-resident promotion source; recency-aware hot-protection expiry |
+| P3 benchmark | ⏳ DEFERRED (I/O hygiene) | benchmarks/run_p3.sh ready; blocked until M9 sweep releases the disk (unbuffered-timing contamination) | Will be reported honestly — migration may lose to write-once (the paper predicts little headroom); nothing claimed before measurement |
+| Incident | git checkout reverted UNCOMMITTED P3 engine work mid-phase (orchestrator error); recovered by re-running the patch script; immediate-commit policy adopted afterwards | ledger note; commit "P3 WIP" | — |

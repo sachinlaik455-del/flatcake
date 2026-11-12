@@ -1,5 +1,10 @@
 # CHANGELOG.md
 
+## 2026-11-13 — P3: medium-aware scheduling (FC-MAS extension)
+- Opt-in migration layer: promotion (zero-extra-SSD-read, publish-swap protocol) + demotion (recency/frequency-aware, budget-capped, SSD-pressure-guarded), deferred frees (race-free), cooldown anti-thrash; default remains paper-faithful write-once.
+- 10 deterministic migration tests (adversarial set complete); 101/101 total.
+- docs/P3_REPORT.md; benchmark deferred until the M9 sweep releases the disk.
+
 ## 2026-11-12 — Phase 3: benchmarks, extension, freeze
 - M9 benchmark sweep (8 cold-start runs): FlatCake 100% delivered hits vs baseline 86–99.6%; **109× fewer physical read ops** at qps4; write-amp 0.995× vs 3.269×; integrity 0 everywhere (docs/RESULTS.md, results/).
 - First sweep's degenerate ratios (hbm == working set) caught by run inspection, corrected, rerun (ledger).
