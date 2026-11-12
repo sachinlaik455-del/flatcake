@@ -56,3 +56,13 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 | P3 tests (10 deterministic) | ✅ | tests/p3_migration_tests.rs — incl. adversarial: hot/cold flips, RAM saturation, SSD-heavy, concurrent migration, thrash/cooldown, loop bound, starvation, headroom | Found + fixed 2 engine-design gaps during testing: hbm-resident promotion source; recency-aware hot-protection expiry |
 | P3 benchmark | ⏳ DEFERRED (I/O hygiene) | benchmarks/run_p3.sh ready; blocked until M9 sweep releases the disk (unbuffered-timing contamination) | Will be reported honestly — migration may lose to write-once (the paper predicts little headroom); nothing claimed before measurement |
 | Incident | git checkout reverted UNCOMMITTED P3 engine work mid-phase (orchestrator error); recovered by re-running the patch script; immediate-commit policy adopted afterwards | ledger note; commit "P3 WIP" | — |
+
+## P4 ledger (final phase)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Track A integration audit | DONE | docs/P4_INTEGRATION_AUDIT.md (15 findings, agent-authored) |
+| Track B recovery log + batching + dedup + metrics | DONE impl / dedup disabled | 7 P4 tests; audit items 1-14 addressed; D-P4-1 dedup defect found by stress test -> disabled by default |
+| Track C tests | DONE | 7 deterministic P4 tests; 111 total, 1 known-flaky CRITICAL (D-P4-2 concurrent integrity, ~50% repro, engine-level, pre-dates P4 additions) |
+| Track D benchmarks | DONE | recovery overhead ~0%; batching mechanism verified; no improvement claims beyond measurement |
+| Track E review + verdict | DONE | warnings-as-errors clean; diff reviewed; docs/P4_REPORT.md verdict: FAIL(conditional) on concurrent-integrity criterion, all else pass |

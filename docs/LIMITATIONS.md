@@ -14,6 +14,10 @@
 - **qps=1 overload cells**: both systems saturate; runs dominated by backpressure drains. Reported with the caveat; the clean comparison cells are qps=4 + mechanism metrics.
 - **DRAM share below the paper's band** (A1 R1): our agentic traces classify nearly all session history as SSD, so DRAM hit share ≈ 0.2–1.5% vs the paper's 8–11.7% — a workload-shape difference, not an engine defect.
 
+## CRITICAL known defect (P4, unresolved)
+
+- **Intermittent concurrent-integrity failure** in `engine_concurrent_mixed_sessions_no_loss_no_corruption` (~50% repro under 8-thread mixed put/get/reclaim/recompute load): a reader can receive another block's bytes. Isolation: P2-layer concurrency passes 10/10; migration OFF, recovery OFF, dedup OFF each still fail — engine-level, not a P4-addition regression; not root-caused. Dedup coalescing additionally disabled by default for its own concurrency bug found by the same test. Top handoff item for the independent audit.
+
 ## Known implementation limitations (documented, accepted)
 
 - Arena payload copies hold the global arena Mutex (µs-scale; M10 candidate) — src/gva/arena.rs.

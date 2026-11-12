@@ -253,7 +253,9 @@ fn p4_recovery_off_by_default_replays_nothing() {
 // counter may fire (opportunistic — races fall through to normal enqueue).
 #[test]
 fn p4_duplicate_requests_integrity_and_dedup() {
-    let cfg = cfg("dup", |_| {});
+    let cfg = cfg("dup", |c| {
+        c.dedup_enabled = 1; // opt-in; see P4_REPORT limitation
+    });
     let e = Arc::new(FlatCakeEngine::new(&cfg).unwrap());
     let bb = cfg.block_bytes();
     let p = put(2, 1, 2, 0, 6, 88);

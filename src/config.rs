@@ -53,6 +53,10 @@ pub struct Config {
     pub recovery_log: u64,
     /// P4: recompute-SSD-append batching threshold (bytes per batched chunk).
     pub write_coalesce_bytes: u64,
+    /// P4: duplicate-request coalescing. DEFAULT OFF: a concurrency bug was
+    /// found by the multi-round mixed-medium stress test (a follower can
+    /// deliver another block's bytes under interleaving); see P4_REPORT.
+    pub dedup_enabled: u64,
 }
 
 impl Config {
@@ -98,6 +102,7 @@ impl Default for Config {
             migration_max_per_get: 2,
             recovery_log: 1,
             write_coalesce_bytes: 65536,
+            dedup_enabled: 0,
         }
     }
 }
@@ -195,6 +200,7 @@ pub fn load(path: &str) -> Result<Config, String> {
     u("migration_max_per_get", &mut cfg.migration_max_per_get, 1, 64)?;
     u("recovery_log", &mut cfg.recovery_log, 0, 2)?;
     u("write_coalesce_bytes", &mut cfg.write_coalesce_bytes, 4096, 16 << 20)?;
+    u("dedup_enabled", &mut cfg.dedup_enabled, 0, 1)?;
     u("csv_window_us", &mut cfg.csv_window_us, 1000, 60_000_000)?;
 
     if cfg.gpu_file_bytes.count_ones() != 1 {
@@ -219,6 +225,7 @@ pub fn load(path: &str) -> Result<Config, String> {
                 "placement_policy", "adaptive_k", "adaptive_h_min",
                 "migration_enabled", "eviction_policy", "migration_cooldown_ms",
                 "migration_max_per_get", "recovery_log", "write_coalesce_bytes",
+                "dedup_enabled",
             ]
             .contains(&k.as_str())
         })

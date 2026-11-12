@@ -3,7 +3,6 @@
 
 use fckv::baseline::BaselineEngine;
 use fckv::config::Config;
-use fckv::engine_api::KvEngine;
 use fckv::replay;
 use fckv::workload::{generate, GenParams, Op};
 use std::sync::Arc;

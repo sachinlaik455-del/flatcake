@@ -4,7 +4,7 @@
 use fckv::config::Config;
 use fckv::engine::FlatCakeEngine;
 use fckv::engine_api::{GetSpec, KvEngine, PutSpec};
-use fckv::types::{BlockKey, Metrics, PlacementSignals};
+use fckv::types::{BlockKey, PlacementSignals};
 use fckv::util::payload_fill;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -286,7 +286,7 @@ fn p3_no_migration_loops_under_steady_state() {
         e.get_request(&gh, &mut verify_bytes(&hot_ks, &hot_seeds, bb))
             .unwrap();
     }
-    let m = e.snapshot();
+    let _m_early = e.snapshot();
     // Loop detector: with cooldown = 0 a promote<->demote oscillation of the
     // SAME block would drive promotions up round after round. The hot block
     // is protected by heat >= K, and newly demoted blocks cannot re-promote

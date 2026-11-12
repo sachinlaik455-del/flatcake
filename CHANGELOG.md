@@ -1,5 +1,8 @@
 # CHANGELOG.md
 
+## 2026-11-13 — P4: FC-CIO integration finalization
+- Recovery WAL (SSD publishes + invalidates; payload-durable-first; opt-in same-workload replay; truncated-tail tolerance); recompute write-batching per (owner-session, layer) + shared-block ownership fix; duplicate-request coalescing (DISABLED by default: concurrency defect found by stress test); avg-read-io metrics; warnings-as-errors clean; 111 tests (1 known-flaky CRITICAL documented — D-P4-2). Verdict: FAIL(conditional) on the concurrency-integrity criterion; full report docs/P4_REPORT.md.
+
 ## 2026-11-13 — P3: medium-aware scheduling (FC-MAS extension)
 - Opt-in migration layer: promotion (zero-extra-SSD-read, publish-swap protocol) + demotion (recency/frequency-aware, budget-capped, SSD-pressure-guarded), deferred frees (race-free), cooldown anti-thrash; default remains paper-faithful write-once.
 - 10 deterministic migration tests (adversarial set complete); 101/101 total.

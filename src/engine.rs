@@ -1156,11 +1156,17 @@ impl KvEngine for FlatCakeEngine {
                 }),
                 Condvar::new(),
             ));
-            if *is_ssd {
-                eprintln!("P4T id={id} fp-check ssd");
+            // Dedup gate: pure-SSD requests only (identical block lists make
+            // the positional merge provably safe; hybrid requests — whose hbm/
+            // DRAM prefixes diverge between callers — take the normal path).
+            let pure_ssd = self.core.cfg.dedup_enabled == 1
+                && *is_ssd
+                && dram_list.is_empty()
+                && hybrid_dram.is_empty()
+                && counted.iter().all(|c| !*c);
+            if pure_ssd {
                 let mut inflight = self.core.inflight.lock().unwrap();
                 if let Some(leader) = inflight.get(&fp).cloned() {
-                    eprintln!("P4T id={id} follower-attach");
                     drop(inflight);
                     let (slot_lock, cv) = &*leader;
                     let mut guard = slot_lock.lock().unwrap();
@@ -1171,30 +1177,16 @@ impl KvEngine for FlatCakeEngine {
                     }
                     let worker_err = guard.err.clone();
                     drop(guard); // release the slot mutex before re-locking it in the merge
-                    // Merge by GVA match (audit item 12): the follower's block
-                    // order differs whenever its hbm/DRAM/recompute prefix
-                    // differs; positional reuse would be wrong.
-                    let leader_map: Vec<(usize, u64)> = {
+                    // Pure-SSD gate guarantees the follower's block list is
+                    // identical to the leader's: positional merge is safe.
+                    {
                         let (slot_lock2, _) = &*leader;
-                        slot_lock2
-                            .lock()
-                            .unwrap()
-                            .map
-                            .iter()
-                            .map(|(oi, g)| (*oi, g.0))
-                            .collect()
-                    };
-                    for (idx, gva) in map.iter() {
-                        let want = gva.0;
-                        if let Some(&(lidx, _)) =
-                            leader_map.iter().find(|&(_, g)| *g == want)
-                        {
-                            let b = {
-                                let (slot_lock2, _) = &*leader;
-                                slot_lock2.lock().unwrap().out[lidx].take()
-                            };
-                            if let Some(bytes) = b {
-                                out[*idx] = Some(bytes);
+                        let mut slot = slot_lock2.lock().unwrap();
+                        for idx in 0..n_blocks {
+                            if out[idx].is_none() {
+                                if let Some(b) = slot.out[idx].take() {
+                                    out[idx] = Some(b);
+                                }
                             }
                         }
                     }
@@ -1233,11 +1225,9 @@ impl KvEngine for FlatCakeEngine {
                         enqueued.as_ref(),
                     );
                 }
-                eprintln!("P4T id={id} leader-insert");
                 inflight.insert(fp, slot_arc.clone());
             }
             self.core.slots.lock().unwrap().insert(id, slot_arc.clone());
-            eprintln!("P4T id={id} enqueue");
             self.core.scheduler.enqueue(req, *is_ssd);
             let (slot_lock, cv) = &*slot_arc;
             let mut guard = slot_lock.lock().unwrap();
@@ -1469,14 +1459,10 @@ fn ssd_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>, reader: &mut Read
         match core.scheduler.pick_ssd() {
             None => break,
             Some(PoppedReq { req, .. }) => {
-                eprintln!("P4T ssd-worker pick req={}", req.id);
                 let t0 = Instant::now();
                 let slot_arc = match core.slots.lock().unwrap().get(&req.id).cloned() {
                     Some(s) => s,
-                    None => {
-                        eprintln!("P4T ssd-worker req={} NO SLOT", req.id);
-                        continue;
-                    }
+                    None => continue,
                 };
                 let bb = core.cfg.block_bytes();
                 let mut orig: Vec<usize> = Vec::with_capacity(req.blocks.len());
