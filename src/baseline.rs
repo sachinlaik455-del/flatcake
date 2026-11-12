@@ -408,7 +408,7 @@ impl BaselineEngine {
         self.spill(evicted)?;
         // DoesNotFit blocks live only on SSD: write them now.
         let mut on_ssd = {
-            let mut dram = self.dram.lock().unwrap();
+            let dram = self.dram.lock().unwrap();
             if dram.map.contains_key(b) {
                 None
             } else {

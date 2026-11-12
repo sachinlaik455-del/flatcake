@@ -47,12 +47,18 @@ No novelty claim is made. A brief literature check (solid-state caching with reu
 
 ## RESULTS (2026-11-12, results/m11/*.json, 24 runs, integrity_fail=0 everywhere)
 
-| Policy | shift s21/s22/s23 | mixed s21/s22/s23 |
+Re-run after the T19 shape tests caught a generator bug (oneshot/shift/mixed
+shared-prompt re-gets referenced never-put session keys — fixed to target
+session 1). Both generator versions agree on the verdict:
+
+| Policy | shift s21/s22/s23 (fixed gen) | mixed s21/s22/s23 (fixed gen) |
 |---|---|---|
-| static (paper) | 99.70 / 99.12 / 99.70 % | 100 / 100 / 100 % |
-| fixed_dram | 95.86 / 82.75 / 95.86 % | 83.33 / 96.13 / 83.33 % |
-| fixed_ssd | 99.70 / 98.39 / 99.70 % | 100 / 100 / 100 % |
-| **adaptive (K=2, H_min=0.2)** | **99.70 / 99.12 / 99.70 %** | **100 / 100 / 100 %** |
+| static (paper) | 100.00 / 100.00 / 100.00 % | 100.00 / 100.00 / 100.00 % |
+| fixed_dram | 96.15 / 96.15 / 96.13 % | 83.63 / 83.33 / 83.33 % |
+| fixed_ssd | 100.00 / 100.00 / 100.00 % | 100.00 / 100.00 / 100.00 % |
+| **adaptive (K=2, H_min=0.2)** | **100.00 / 100.00 / 100.00 %** | **100.00 / 100.00 / 100.00 %** |
+
+(Pre-fix numbers, for the record: static 99.70/99.12/99.70 shift; adaptive identical; fixed_dram 82.75-96.15.)
 
 **Verdict: H0 (no advantage) — H1's win condition (adaptive > static by >= 2 pp on shift) NOT met; parity criterion (>= static - 0.5 pp on set B) MET everywhere.**
 

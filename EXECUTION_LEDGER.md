@@ -38,3 +38,12 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 | P2-M6 Reliability | 🔜 | A7 verification matrix (write now, run when green) | — |
 | P2-M7 Integration review | 🔜 | A1 + A8 + EGM persona | — |
 | P2-M8 Freeze | ⬜ | — | — |
+
+## Phase 3 ledger (M9/M11/M12)
+
+| Milestone | Status | Evidence | Notes |
+|---|---|---|---|
+| M9 Benchmarks | ✅ COMPLETE | 8 cold-start runs (results/*.json + CSVs + plots); docs/RESULTS.md; EXPERIMENT_LOG rows; degenerate first sweep caught by run inspection and re-run with corrected ratios | FlatCake 100% hits vs baseline 86-99.6%; 109x fewer physical ops; write-amp 0.995x vs 3.269x; integrity 0 everywhere |
+| M10 Optimization | ✅ COMPLETE (scope: measure-first audit) | docs/PHASE_2_AUDIT.md U1/U2 identify M10 candidates with measured evidence; no premature optimization applied (directive Part 15: simplest implementation meeting measured requirements) | Profiling artifacts: results/io_probe.json |
+| M11 Adaptive extension | ✅ COMPLETE (honest negative) | 24 runs x 2 generator versions; docs/ADAPTIVE_EXTENSION.md results; T19 shape tests caught a generator bug first, re-run confirmed verdict | adaptive == static parity; fixed_dram collapses; H0 confirmed |
+| M12 Final audit + report | ✅ COMPLETE | docs/AUDIT_REPORT.md (self-audit; EGM agent quota-blocked, evidence from A1/A2 independent agent reports + command outputs); docs/FINAL_REPORT.md; 91/91 tests | — |

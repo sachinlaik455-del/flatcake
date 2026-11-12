@@ -31,7 +31,7 @@ Traces are JSONL at `data/workloads/`. Payloads are never stored — engines reg
 - `agentic`: every turn t>1 re-accesses 100% of the session's own prefix (reuse distance ≈ fanout+1 requests); session ctx crosses `l_agent_tokens` within the configured turns.
 - `oneshot`: fraction of blocks ever re-accessed ≈ `shared_blocks/(sessions×bpt×layers)` + `reuse_rate` — dominated by once-access, matching regime A's shape.
 - `mixed`: both shapes present in one timeline.
-- Verified by `fckv gen-workload` guard errors + replay-side assertions (M8).
+- Verified by tests/workload_shape_tests.rs (`t19_regime_shapes_match_paper_motivations`): put-is-first-access accounting, once-access fractions (<50% agentic / >80% oneshot), reuse-distance medians (<=3 vs long-tailed), ctx crossing L_agent, and the cross-regime contrast. These tests caught and fixed a real generator bug (shared-prompt re-gets targeting never-put keys).
 
 ## Known divergence from the paper's evaluation (honesty per D2)
 

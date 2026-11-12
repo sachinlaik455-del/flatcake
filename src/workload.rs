@@ -284,12 +284,15 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
                     0, s, 1, p.layers, 0, p.blocks_per_turn, 0, reply, ctx, seed,
                 ));
                 written += p.blocks_per_turn as u64 * p.layers as u64 * block_bytes;
-                // Small fraction re-access ONLY the shared prompt later (long reuse distance).
+                // Small fraction re-access ONLY the shared prompt later (long reuse
+                // distance). The get targets SESSION 1 — the shared prompt's own
+                // blocks (a real reuse of existing data, not re-reads of never-put
+                // session-s keys).
                 let r = (splitmix64(&mut st) % 1000) as f64 / 1000.0;
                 if r < p.reuse_rate {
                     recs.push(get_record(
                         0,
-                        s,
+                        1,
                         1,
                         p.layers,
                         p.shared_blocks,
@@ -320,8 +323,9 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
                 written += p.blocks_per_turn as u64 * p.layers as u64 * block_bytes;
                 let r = (splitmix64(&mut st) % 1000) as f64 / 1000.0;
                 if r < p.reuse_rate {
+                    // Target SESSION 1 (the shared prompt's actual blocks).
                     recs.push(get_record(
-                        0, s, 1, p.layers, p.shared_blocks, 1, reply, shared_ctx, 0, 0,
+                        0, 1, 1, p.layers, p.shared_blocks, 1, reply, shared_ctx, 0, 0,
                     ));
                 }
             }
@@ -415,7 +419,7 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
                 if r < p.reuse_rate {
                     one_recs.push(get_record(
                         u64::MAX,
-                        s,
+                        1, // the shared prompt's own blocks (session 1)
                         1,
                         p.layers,
                         p.shared_blocks,

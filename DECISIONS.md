@@ -25,3 +25,6 @@
 | D22 | Reclamation: trigger at high watermark, drain to LOW watermark | Literal "while > high" reading would stop in the [low,high) band after one free and never reach the low watermark | Literal reading | FC-GVA agent report |
 | D23 | MergedRange gains parallel part_lens | Per-descriptor exact reconstruction with overlapping/duplicate descriptors needs per-part spans | 2-tuple parts only (insufficient) | FC-CIO agent report |
 | D24 | SSD window chunk step rounds down to 4 KiB; AlignedBuf zero-initialized | NO_BUFFERING requires sector-aligned chunk starts; pad bytes must be zero | Raw window size / alloc without zeroing | FC-CIO agent report |
+
+| D25 | M11 adaptive extension: **negative result accepted as-is** (parity, no advantage); tuning grid reduced to declared defaults instead of post-hoc tuning on eval seeds | Quota/compute constraints; post-hoc tuning on set B would invalidate it; the headroom-gate mechanism bounds any (K,H_min) under tight budgets | Reporting a fake win | ADAPTIVE_EXTENSION.md results |
+| D26 | Generator shared-prompt re-gets target session 1 (was: session-s keys that were never put) | T19 shape tests caught phantom reuse — the fix makes regime-A "long reuse distance" semantically real; M11 re-run confirmed the negative result is robust to the fix | Leaving phantom reads (dishonest traces) | tests/workload_shape_tests.rs |

@@ -16,3 +16,10 @@ Notes: integrity_failures = 0 in every run. qps=1 cells are overload regimes (ar
 ## Environment note (applies to all runs)
 
 Windows 11, i5-14450HX (10C/16T), 15.7 GB RAM, KIOXIA 512 GB NVMe (single drive — NOT the paper's 8× PM9A3 RAID0; absolute throughput numbers are not comparable to the paper, D2). FILE_FLAG_NO_BUFFERING on both systems (D12). Cold start, no warm-up (paper §5.1 protocol). Multiple seeds; variance reported in RESULTS.md.
+
+## M11 adaptive-placement runs (2026-11-12)
+
+24 runs: 4 policies x {shift, mixed} x seeds {21,22,23} (eval set B; tuning grid = declared defaults only, D25).
+Pre-fix generator (phantom reuse): static 99.12-100%, adaptive identical, fixed_dram 82.75-96.15%.
+Post-fix generator (D26): static 100.00 all cells; adaptive 100.00 all cells; fixed_ssd 100.00; fixed_dram 83.33-96.15%.
+Artifacts: results/m11/*.json. Repro: `bash benchmarks/run_m11.sh`. integrity_fail=0 in all 24.
