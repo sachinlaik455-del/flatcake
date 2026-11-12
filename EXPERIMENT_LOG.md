@@ -4,6 +4,14 @@ Every row = one executed run with its exact reproduction command. Results are ne
 
 | Run ID | Date/epoch | System | Trace (regime, sessions, qps, seed) | Config deltas | Result summary (hit rate / read amp / p50) | Artifacts | Repro command |
 |---|---|---|---|---|---|---|---|
+| io-probe | 2026-11-11 | n/a | n/a (256 MiB file) | none | unbuffered: 4k-rand 56 MB/s · 4k-seq 111 · 1M-seq 1075; buffered 4k-rand ~2900 (cache artifact) | results/io_probe.json | `python -I scripts/audit_io_probe.py 256` |
+| demo-01 | 2026-11-11 | both | agentic 3s×10t, qps5, seed42 | demo budgets (2 MiB DRAM) | baseline 35.32% / flatcake 82.52%, integrity 0/0 | terminal (README) | `./target/release/fckv.exe demo` |
+| sweep qps1 seed11 | 2026-11-11→12 | both | agentic 32s×12t, qps1, seed11 | fckv.conf | baseline 87.36% / 1.000x / 66.9ms · flatcake 100.00% / 1.000x / 626.6ms (real I/O; overload p99) | results/{baseline,flatcake}-qps1-seed11.json | `bash benchmarks/run_sweep.sh` |
+| sweep qps1 seed12 | 2026-11-11→12 | both | same, seed12 | fckv.conf | baseline 86.15% / 1.000x / 868.5ms · flatcake 100.00% / 1.003x / 728.3ms (sustained overload both; drains dominate wall clock: 4.6 ks / 15.0 ks) | results/*-qps1-seed12.json | as above |
+| sweep qps4 seed11 | 2026-11-12 | both | same, qps4, seed11 | fckv.conf | baseline 99.57% / 1.000x / 3.1ms, write_amp 3.269x, 38,272 ops · flatcake 100.00% / 1.000x / 4.5ms, write_amp 0.995x, **352 ops** | results/*-qps4-seed11.json | as above |
+| sweep qps4 seed12 | 2026-11-12 | both | same, qps4, seed12 | fckv.conf | baseline 99.57% / 1.219ms p50 · flatcake 100.00% / 1.541ms, 352 ops | results/*-qps4-seed12.json | as above |
+
+Notes: integrity_failures = 0 in every run. qps=1 cells are overload regimes (arrival > service for large-prefix restores) — reported with the overload caveat in RESULTS.md; the honest comparison cells are qps=4 plus the mechanism metrics (ops, amplification) everywhere.
 
 ## Environment note (applies to all runs)
 

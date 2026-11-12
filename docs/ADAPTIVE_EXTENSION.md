@@ -43,3 +43,25 @@ Feedback-only, placement-time decisions, **no migration, no tombstoning games**:
 ## Novelty disclaimer
 
 No novelty claim is made. A brief literature check (solid-state caching with reuse feedback, e.g., AdaptCache [10] in the paper's own related work) will be cited for context at M11; the purpose here is a controlled comparison on our own engine, not a publication claim.
+
+
+## RESULTS (2026-11-12, results/m11/*.json, 24 runs, integrity_fail=0 everywhere)
+
+| Policy | shift s21/s22/s23 | mixed s21/s22/s23 |
+|---|---|---|
+| static (paper) | 99.70 / 99.12 / 99.70 % | 100 / 100 / 100 % |
+| fixed_dram | 95.86 / 82.75 / 95.86 % | 83.33 / 96.13 / 83.33 % |
+| fixed_ssd | 99.70 / 98.39 / 99.70 % | 100 / 100 / 100 % |
+| **adaptive (K=2, H_min=0.2)** | **99.70 / 99.12 / 99.70 %** | **100 / 100 / 100 %** |
+
+**Verdict: H0 (no advantage) — H1's win condition (adaptive > static by >= 2 pp on shift) NOT met; parity criterion (>= static - 0.5 pp on set B) MET everywhere.**
+
+### Why (mechanism, from per-run metrics)
+
+Adaptive's per-medium split (dram=64, ssd~2800) is indistinguishable from static's: the evidence rule almost never fires because (a) an agentic session's FIRST put precedes any observed get, so the scope is created on SSD by the turn-1/one-shot rule and OQ-19 stickiness; (b) by turn 3 when K=2 is satisfied, the 8 MiB DRAM pool is cycling in its 70-90% watermark band, so headroom < H_min=0.2 blocks the DRAM placement — the rule is self-limiting exactly when it would matter. Meanwhile SSD-served histories still deliver 99.7% hits via coalesced reads, i.e., the paper's asymmetric-misprediction argument (§3.2) holds: there is little hit-rate headroom for ANY placement policy to recover. fixed_dram confirms the converse: forcing everything into a too-small DRAM pool causes reclaim-churn misses (82-96%).
+
+### Honest limitations of this evaluation
+
+- Tuning grid reduced to the declared defaults (K=2, H_min=0.2) under the session's compute/quota constraints — no post-hoc tuning on set B (which would invalidate it); a fuller grid might find a better operating point, but the headroom-gate mechanism above bounds what any (K, H_min) can achieve under these budgets.
+- Compressed schedule (time_scale 0.05) — valid for hit-rate accounting, not latency.
+- Conclusion is workload/budget-scoped (tight-DRAM regimes), as pre-declared in the controlled-conditions section.

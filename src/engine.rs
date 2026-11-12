@@ -75,6 +75,8 @@ struct EngineCore {
     /// from the layout (A2 finding M2: a stale scope entry must never append
     /// into a recycled file).
     ssd_sessions: Mutex<HashSet<u64>>,
+    /// M11 adaptive evidence: served gets per session (ADAPTIVE_EXTENSION.md).
+    gets_served: Mutex<HashMap<u64, u64>>,
 }
 
 pub struct FlatCakeEngine {
@@ -97,6 +99,7 @@ impl FlatCakeEngine {
             slots: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             ssd_sessions: Mutex::new(HashSet::new()),
+            gets_served: Mutex::new(HashMap::new()),
         });
         let running = Arc::new(AtomicBool::new(true));
         let mut handles = Vec::new();
@@ -130,9 +133,20 @@ impl FlatCakeEngine {
     }
 
     /// Resolve/create the session scope; returns its (possibly flipped) medium.
+    /// M11: the configured policy (static/fixed/adaptive) wraps the paper's
+    /// Table-2 precedence; adaptive uses observed reuse evidence + DRAM headroom.
     fn scope_medium(&self, sig: &PlacementSignals) -> Medium {
         let sticky = self.core.registry.sticky_medium(sig.session);
-        let medium = placement::decide(sig, sticky, &self.core.cfg);
+        let gets = self
+            .core
+            .gets_served
+            .lock()
+            .unwrap()
+            .get(&sig.session)
+            .copied();
+        let headroom = 1.0 - (self.core.arena.used_bytes() as f64
+            / self.core.arena.capacity() as f64);
+        let medium = placement::decide_policy(sig, sticky, &self.core.cfg, gets, headroom);
         if sticky.is_none() {
             self.core.registry.create_scope(sig.session, medium, self.now_us());
         } else if medium == Medium::Ssd && sticky == Some(Medium::Dram) {
@@ -428,6 +442,14 @@ impl KvEngine for FlatCakeEngine {
     }
 
     fn get_request(&self, spec: &GetSpec, sink: &mut dyn FnMut(usize, &[u8])) -> io::Result<()> {
+        // M11 adaptive evidence: count served gets per session (before routing).
+        *self
+            .core
+            .gets_served
+            .lock()
+            .unwrap()
+            .entry(spec.signals.session)
+            .or_insert(0) += 1;
         let id = self.core.next_id.fetch_add(1, Ordering::SeqCst);
         let n_blocks = spec.blocks.len();
         let mut out: Vec<Option<Vec<u8>>> = vec![None; n_blocks];

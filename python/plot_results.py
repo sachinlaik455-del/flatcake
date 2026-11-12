@@ -31,6 +31,8 @@ def load_runs(results_dir):
         except (json.JSONDecodeError, OSError) as e:
             print(f"skip {fn}: {e}", file=sys.stderr)
             continue
+        if "metrics" not in r or "system" not in r:
+            continue  # non-run JSON (e.g. io_probe.json)
         m = QPS_RE.search(fn)
         r["_qps"] = float(m.group(1)) if m else 0.0
         r["_file"] = fn

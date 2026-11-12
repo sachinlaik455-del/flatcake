@@ -30,6 +30,13 @@ pub struct Config {
     pub index_capacity: u64,
     pub time_scale: f64,
     pub csv_window_us: u64,
+    /// M11 placement policy: static (paper Table-2 precedence, default),
+    /// fixed_dram, fixed_ssd, or adaptive (ADAPTIVE_EXTENSION.md).
+    pub placement_policy: String,
+    /// Adaptive evidence threshold K (observed served gets before DRAM).
+    pub adaptive_k: u64,
+    /// Adaptive DRAM headroom floor H_min.
+    pub adaptive_h_min: f64,
 }
 
 impl Config {
@@ -66,6 +73,9 @@ impl Default for Config {
             index_capacity: 1_048_576,
             time_scale: 1.0,
             csv_window_us: 1_000_000,
+            placement_policy: "static".into(),
+            adaptive_k: 2,
+            adaptive_h_min: 0.2,
         }
     }
 }
@@ -114,6 +124,11 @@ pub fn load(path: &str) -> Result<Config, String> {
         }
         Ok(())
     };
+    let s2 = |k: &str, cur: &mut String| {
+        if let Some(v) = seen.get(k) {
+            *cur = v.clone();
+        }
+    };
     let s = |k: &str, cur: &mut String| {
         if let Some(v) = seen.get(k) {
             *cur = v.clone();
@@ -143,6 +158,12 @@ pub fn load(path: &str) -> Result<Config, String> {
     u("recompute_us_per_token", &mut cfg.recompute_us_per_token, 0, 1_000_000)?;
     u("index_capacity", &mut cfg.index_capacity, 1024, 1 << 26)?;
     f("time_scale", &mut cfg.time_scale, 0.001, 1000.0)?;
+    s2("placement_policy", &mut cfg.placement_policy);
+    if !["static", "fixed_dram", "fixed_ssd", "adaptive"].contains(&cfg.placement_policy.as_str()) {
+        return Err("placement_policy must be static|fixed_dram|fixed_ssd|adaptive".into());
+    }
+    u("adaptive_k", &mut cfg.adaptive_k, 1, 64)?;
+    f("adaptive_h_min", &mut cfg.adaptive_h_min, 0.0, 0.9)?;
     u("csv_window_us", &mut cfg.csv_window_us, 1000, 60_000_000)?;
 
     if cfg.gpu_file_bytes.count_ones() != 1 {
@@ -164,6 +185,7 @@ pub fn load(path: &str) -> Result<Config, String> {
                 "ssd_high_watermark", "ssd_low_watermark", "ssd_workers", "dram_workers",
                 "queue_cap", "staging_pool_bytes", "recompute_us_per_token",
                 "index_capacity", "time_scale", "csv_window_us",
+                "placement_policy", "adaptive_k", "adaptive_h_min",
             ]
             .contains(&k.as_str())
         })

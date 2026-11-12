@@ -25,6 +25,30 @@ use crate::config::Config;
 use crate::types::{Medium, PlacementSignals};
 
 /// Frozen precedence decision (ARCHITECTURE §4 table, verbatim).
+/// M11 policy dispatch (ADAPTIVE_EXTENSION.md). `gets_served` = observed served
+/// gets for the session (evidence input); None disables the evidence rule.
+pub fn decide_policy(
+    sig: &PlacementSignals,
+    sticky: Option<Medium>,
+    cfg: &Config,
+    gets_served: Option<u64>,
+    dram_headroom: f64,
+) -> Medium {
+    match cfg.placement_policy.as_str() {
+        "fixed_dram" => Medium::Dram,
+        "fixed_ssd" => Medium::Ssd,
+        "adaptive" => {
+            if let Some(n) = gets_served {
+                if n >= cfg.adaptive_k && dram_headroom >= cfg.adaptive_h_min {
+                    return Medium::Dram;
+                }
+            }
+            decide(sig, sticky, cfg)
+        }
+        _ => decide(sig, sticky, cfg),
+    }
+}
+
 pub fn decide(sig: &PlacementSignals, sticky: Option<Medium>, cfg: &Config) -> Medium {
     // SSD scope stickiness preserves on-disk contiguity (§3.4).
     if sticky == Some(Medium::Ssd) {
