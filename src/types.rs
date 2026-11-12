@@ -150,6 +150,11 @@ pub struct Metrics {
     pub reclaim_payload_ops: u64,
     pub delivered_requests: u64,
     pub mem_high_water: u64,
+    // P3 medium-aware migration counters (zero when migration_enabled = 0).
+    pub migr_promotions: u64,
+    pub migr_demotions: u64,
+    pub migr_bytes_moved: u64,
+    pub migr_cooldown_skips: u64,
     /// samples in microseconds (latency includes queue wait, ARCHITECTURE §9)
     pub lat_samples: Vec<u64>,
     pub qwait_samples: Vec<u64>,

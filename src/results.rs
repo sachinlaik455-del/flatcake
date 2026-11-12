@@ -99,6 +99,10 @@ pub fn write_run_json(
     kv_u(&mut parts, "reclaim_events", m.reclaim_events);
     kv_u(&mut parts, "reclaim_payload_ops", m.reclaim_payload_ops);
     kv_u(&mut parts, "delivered_requests", m.delivered_requests);
+    kv_u(&mut parts, "migr_promotions", m.migr_promotions);
+    kv_u(&mut parts, "migr_demotions", m.migr_demotions);
+    kv_u(&mut parts, "migr_bytes_moved", m.migr_bytes_moved);
+    kv_u(&mut parts, "migr_cooldown_skips", m.migr_cooldown_skips);
     kv_u(&mut parts, "requests_issued", requests_issued);
     kv_u(&mut parts, "integrity_failures", integrity_failures);
     kv_f(&mut parts, "elapsed_s", elapsed_s);

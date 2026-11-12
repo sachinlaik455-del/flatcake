@@ -37,6 +37,16 @@ pub struct Config {
     pub adaptive_k: u64,
     /// Adaptive DRAM headroom floor H_min.
     pub adaptive_h_min: f64,
+    /// P3: enable medium-aware migration (promote/demote). Default off — the
+    /// paper's write-once design never migrates; migration is an opt-in policy.
+    pub migration_enabled: u64,
+    /// P3: eviction policy for DRAM pressure: session_extents (paper default)
+    /// or medium_aware (demote cold blocks before whole-session reclaim).
+    pub eviction_policy: String,
+    /// P3: per-block migration cooldown (ms) — anti-thrash guard.
+    pub migration_cooldown_ms: u64,
+    /// P3: max migrations executed per get_request / reclaim pass.
+    pub migration_max_per_get: u64,
 }
 
 impl Config {
@@ -76,6 +86,10 @@ impl Default for Config {
             placement_policy: "static".into(),
             adaptive_k: 2,
             adaptive_h_min: 0.2,
+            migration_enabled: 0,
+            eviction_policy: "session_extents".into(),
+            migration_cooldown_ms: 5000,
+            migration_max_per_get: 2,
         }
     }
 }
@@ -164,6 +178,13 @@ pub fn load(path: &str) -> Result<Config, String> {
     }
     u("adaptive_k", &mut cfg.adaptive_k, 1, 64)?;
     f("adaptive_h_min", &mut cfg.adaptive_h_min, 0.0, 0.9)?;
+    u("migration_enabled", &mut cfg.migration_enabled, 0, 1)?;
+    s2("eviction_policy", &mut cfg.eviction_policy);
+    if !["session_extents", "medium_aware"].contains(&cfg.eviction_policy.as_str()) {
+        return Err("eviction_policy must be session_extents|medium_aware".into());
+    }
+    u("migration_cooldown_ms", &mut cfg.migration_cooldown_ms, 0, 3_600_000)?;
+    u("migration_max_per_get", &mut cfg.migration_max_per_get, 1, 64)?;
     u("csv_window_us", &mut cfg.csv_window_us, 1000, 60_000_000)?;
 
     if cfg.gpu_file_bytes.count_ones() != 1 {
@@ -186,6 +207,8 @@ pub fn load(path: &str) -> Result<Config, String> {
                 "queue_cap", "staging_pool_bytes", "recompute_us_per_token",
                 "index_capacity", "time_scale", "csv_window_us",
                 "placement_policy", "adaptive_k", "adaptive_h_min",
+                "migration_enabled", "eviction_policy", "migration_cooldown_ms",
+                "migration_max_per_get",
             ]
             .contains(&k.as_str())
         })

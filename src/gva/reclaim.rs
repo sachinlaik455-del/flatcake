@@ -125,6 +125,60 @@ impl ScopeRegistry {
         }
     }
 
+    /// Active reader count for a scope (0 = no in-flight request holds it).
+    /// P3 migration uses this to close the read-vs-free race on extent moves.
+    pub fn active_readers(&self, session: u64) -> u64 {
+        let m = self.scopes.lock().expect("scope registry poisoned");
+        m.get(&session)
+            .map(|s| s.reader_refs.load(Ordering::SeqCst))
+            .unwrap_or(0)
+    }
+
+    /// Active writer count for a scope (0 = no PENDING write in flight).
+    pub fn active_writers(&self, session: u64) -> u64 {
+        let m = self.scopes.lock().expect("scope registry poisoned");
+        m.get(&session)
+            .map(|s| s.writer_refs.load(Ordering::SeqCst))
+            .unwrap_or(0)
+    }
+
+    /// Remove a DRAM extent from the scope's ownership (P3 migration: the extent
+    /// was moved elsewhere; removing prevents double-free at reclaim).
+    pub fn remove_dram_extent(&self, session: u64, off: u64, len: u64) -> bool {
+        let mut m = self.scopes.lock().expect("scope registry poisoned");
+        match m.get_mut(&session) {
+            Some(s) => {
+                if let Some(pos) = s.dram_extents.iter().position(|&(o, l)| o == off && l == len) {
+                    s.dram_extents.swap_remove(pos);
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        }
+    }
+
+    /// Remove an SSD extent from the scope's ownership (P3 migration).
+    pub fn remove_ssd_extent(&self, session: u64, file_seq: u32, off: u64, len: u64) -> bool {
+        let mut m = self.scopes.lock().expect("scope registry poisoned");
+        match m.get_mut(&session) {
+            Some(s) => {
+                if let Some(pos) = s
+                    .ssd_extents
+                    .iter()
+                    .position(|&(f, o, l)| f == file_seq && o == off && l == len)
+                {
+                    s.ssd_extents.swap_remove(pos);
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        }
+    }
+
     /// Register an SSD extent (GPU File segment) with the scope.
     pub fn add_ssd_extent(&self, session: u64, file_seq: u32, off: u64, len: u64) -> bool {
         let mut m = self.scopes.lock().expect("scope registry poisoned");
