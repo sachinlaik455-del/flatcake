@@ -103,6 +103,30 @@ pub fn write_run_json(
     kv_u(&mut parts, "migr_demotions", m.migr_demotions);
     kv_u(&mut parts, "migr_bytes_moved", m.migr_bytes_moved);
     kv_u(&mut parts, "migr_cooldown_skips", m.migr_cooldown_skips);
+    kv_u(&mut parts, "dedup_requests", m.dedup_requests);
+    kv_u(&mut parts, "recovery_replayed", m.recovery_replayed);
+    kv_u(&mut parts, "recovery_truncated", m.recovery_truncated);
+    kv_f(
+        &mut parts,
+        "avg_read_io_bytes",
+        if m.physical_read_ops == 0 {
+            0.0
+        } else {
+            m.physical_read_bytes as f64 / m.physical_read_ops as f64
+        },
+    );
+    kv_u(&mut parts, "dedup_requests", m.dedup_requests);
+    kv_u(&mut parts, "recovery_replayed", m.recovery_replayed);
+    kv_u(&mut parts, "recovery_truncated", m.recovery_truncated);
+    kv_f(
+        &mut parts,
+        "avg_read_io_bytes",
+        if m.physical_read_ops == 0 {
+            0.0
+        } else {
+            m.physical_read_bytes as f64 / m.physical_read_ops as f64
+        },
+    );
     kv_u(&mut parts, "requests_issued", requests_issued);
     kv_u(&mut parts, "integrity_failures", integrity_failures);
     kv_f(&mut parts, "elapsed_s", elapsed_s);

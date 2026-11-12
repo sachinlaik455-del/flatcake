@@ -155,6 +155,10 @@ pub struct Metrics {
     pub migr_demotions: u64,
     pub migr_bytes_moved: u64,
     pub migr_cooldown_skips: u64,
+    // P4 durability + coalescing counters.
+    pub dedup_requests: u64,
+    pub recovery_replayed: u64,
+    pub recovery_truncated: u64,
     /// samples in microseconds (latency includes queue wait, ARCHITECTURE §9)
     pub lat_samples: Vec<u64>,
     pub qwait_samples: Vec<u64>,

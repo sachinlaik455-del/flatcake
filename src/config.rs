@@ -47,6 +47,12 @@ pub struct Config {
     pub migration_cooldown_ms: u64,
     /// P3: max migrations executed per get_request / reclaim pass.
     pub migration_max_per_get: u64,
+    /// P4 recovery log: 0 = off; 1 = write log only (default — a different
+    /// trace reusing session ids must not see stale blocks); 2 = write + replay
+    /// at startup (same-workload restart / crash recovery).
+    pub recovery_log: u64,
+    /// P4: recompute-SSD-append batching threshold (bytes per batched chunk).
+    pub write_coalesce_bytes: u64,
 }
 
 impl Config {
@@ -90,6 +96,8 @@ impl Default for Config {
             eviction_policy: "session_extents".into(),
             migration_cooldown_ms: 5000,
             migration_max_per_get: 2,
+            recovery_log: 1,
+            write_coalesce_bytes: 65536,
         }
     }
 }
@@ -185,6 +193,8 @@ pub fn load(path: &str) -> Result<Config, String> {
     }
     u("migration_cooldown_ms", &mut cfg.migration_cooldown_ms, 0, 3_600_000)?;
     u("migration_max_per_get", &mut cfg.migration_max_per_get, 1, 64)?;
+    u("recovery_log", &mut cfg.recovery_log, 0, 2)?;
+    u("write_coalesce_bytes", &mut cfg.write_coalesce_bytes, 4096, 16 << 20)?;
     u("csv_window_us", &mut cfg.csv_window_us, 1000, 60_000_000)?;
 
     if cfg.gpu_file_bytes.count_ones() != 1 {
@@ -208,7 +218,7 @@ pub fn load(path: &str) -> Result<Config, String> {
                 "index_capacity", "time_scale", "csv_window_us",
                 "placement_policy", "adaptive_k", "adaptive_h_min",
                 "migration_enabled", "eviction_policy", "migration_cooldown_ms",
-                "migration_max_per_get",
+                "migration_max_per_get", "recovery_log", "write_coalesce_bytes",
             ]
             .contains(&k.as_str())
         })

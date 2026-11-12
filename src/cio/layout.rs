@@ -387,6 +387,32 @@ impl SsdLayoutImpl {
         Ok(gvas)
     }
 
+    /// P4 recovery: re-register a session at a known append cursor after a
+    /// crash (the replayed log gives the highest published in-file offset).
+    /// The file state (lazily-opened NO_BUFFERING handle) is created if absent.
+    pub fn adopt_session(&self, session: u64, file_seq: u32, append_off: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.sessions.contains_key(&session) {
+            return; // idempotent
+        }
+        if !inner.files.contains_key(&file_seq) {
+            inner.files.insert(
+                file_seq,
+                Arc::new(FileState {
+                    meta: Mutex::new(FileMeta::default()),
+                }),
+            );
+        }
+        inner.sessions.insert(
+            session,
+            SessionScope {
+                file_seq,
+                append_off: align_up(append_off, IO_ALIGN),
+            },
+        );
+    }
+
+
     /// Detach a session's scope entry. The engine calls this at reclamation
     /// (after freeing the scope's extents) so a stale session can never append
     /// into a recycled file. Contract gap: the frozen `SsdLayout` trait has no

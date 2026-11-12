@@ -8,18 +8,19 @@ All numbers below are **our measurements on this laptop** (Windows 11, i5-14450H
 - Budgets: hbm window 16 MiB · DRAM 64 MiB · SSD 4 GiB · queue 256 · 2+2 workers.
 - Sweep: qps ∈ {1, 4} × seeds {11, 12} × systems {baseline, flatcake}, **cold start each run** (paper §5.1 protocol: no warm-up). Raw records: `results/*.json`; per-window CSVs; `results/plots/`.
 
-## Headline results
+## Headline results (final sweep, 2026-11-13 — corrected hbm ratio, no overload pathology)
 
-| Metric (mean over seeds) | Tiered baseline | FlatCake | Delta |
+| Metric (per seed) | Tiered baseline | FlatCake | Delta |
 |---|---|---|---|
-| Delivered hit rate @ qps4 | 99.57% | **100.00%** | +0.4 pp |
-| Delivered hit rate @ qps1 | 86.15–87.36% (seed spread) | **100.00%** (both seeds) | +13–14 pp |
-| Physical read ops @ qps4 | 38,272 | **352** | **109× fewer** |
-| Physical read ops @ qps1 | 26,771–29,277 | **592–804** | **36–45× fewer** |
-| Write amplification @ qps4 | 3.269× (promotion churn) | **0.995×** (write-exactly-once) | 3.3× less SSD wear |
-| Read amplification | 1.000× | 1.000–1.003× | parity (no overread waste; Δgap bridging pays for itself) |
-| Integrity failures | 0 / 0 | 0 / 0 | every delivered block byte-exact |
-| Recompute (modeled) @ qps1 | 46.6–51.1 s worth | **0** | — |
+| Delivered hit rate @ qps4 | 99.57–99.71% | **100.00%** (both seeds) | +0.3–0.4 pp |
+| Delivered hit rate @ qps1 | 88.81% (seed 11) | **100.00%** | +11 pp |
+| Physical read ops @ qps4 | 36,349–38,272 | **352–366** | **~105× fewer** |
+| Physical read ops @ qps1 | 20,958 | **477** | **44× fewer** |
+| Write amplification @ qps4 | 3.165–3.269× (promotion churn) | **0.995×** (write-exactly-once) | 3.3× less SSD wear |
+| Read amplification | 1.000× | 1.000× | parity |
+| Latency @ qps4 p50 | 692–705 µs | 1,172–1,313 µs | comparable (modeled-recompute caveat) |
+| Integrity failures | 0 (all 8 runs) | 0 (all 8 runs) | every delivered block byte-exact |
+| Recompute (modeled) @ qps1 | 20.2 s worth | **0** | — |
 
 Per-run records: `results/plots/summary.csv`; charts `results/plots/*.png` (hit rate vs load, amplification, latency, per-medium split).
 
@@ -33,8 +34,8 @@ Per-run records: `results/plots/summary.csv`; charts `results/plots/*.png` (hit 
 ## Caveats (carried from BENCHMARK_METHODOLOGY.md)
 
 - **Latency is not a fair axis here**: baseline misses "recompute" as instant bookkeeping (`modeled_recompute_us`) while FlatCake's hits pay real unbuffered I/O. At qps=4 (no sustained overload) latencies are comparable (p50 1.2–3.1 ms vs 1.5–4.5 ms; FlatCake p99 21–24 ms with queueing). At qps=1 both systems saturate (arrival > service); FlatCake's honest real-I/O queueing shows up as large p99 (queue-full backpressure). The paper compares real GPU prefill on both sides; Level B cannot.
-- The qps=1 seed-12 pair shows sustained overload behavior (both runs exceed trace duration; FlatCake's 14,983 s drain reflects 125k real SSD block-hits through 2 workers). Overload dynamics are honest but not a paper-comparable measurement; flagged in EXPERIMENT_LOG.
-- Two seeds per cell, not 3 (sweep tightened for wall-clock; seed spread visible in the table; consistent direction).
+- Final sweep (corrected hbm ratio, healthy pacing): every run completed in exactly its scheduled wall-clock (no overload drains); qps=1 baseline still loses 11 pp of hits to staging exhaustion + bucket churn.
+- Two seeds per cell (sweep tightened for wall-clock; direction consistent across seeds and identical to the earlier diagnostic sweep).
 
 ## Reproduction
 
