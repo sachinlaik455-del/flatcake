@@ -1,91 +1,77 @@
-# final-security-audit.md — FlatCake Level-B prototype (final independent security audit)
+# final-security-audit.md — FlatCake KV-cache system (final independent security assessment)
 
-Auditor: lead security engineer (this session), with Track A (integration audit) and Track C (concurrency hunt) subagent contributions. Date: 2026-11-13. Repository: 31 commits, clean tree at audit close.
+Lead auditor: principal security engineer (this session). Date: 2026-11-13. Target: `E:\project ml\KVCache` @ `1d768314bc55d6651168c4448898816d6f537e18` (clean tree).
 
-## Executive summary
+## 1. Executive verdict
 
-FlatCake (Level-B CPU prototype, std-only Rust, zero dependencies) was audited across P1–P4: attack surface, memory safety, concurrency, storage integrity, scheduler/queue robustness, supply chain, and adversarial testing. **108 tests pass (0 failures), warnings-as-errors clean, selftest PASS.**
+**PASS WITH FINDINGS.** One High-severity vulnerability (SEC-1, index poisoning via batched recompute — a genuine cross-block data-exposure defect introduced by the P4 write-coalescing feature) was **confirmed with a deterministic repro, fixed with a minimal surgical change, and regression-pinned** during this audit. Two Medium findings at the same site (extent-ownership leak, missing writer pin) were fixed in the same patch. One Medium finding (SEC-2, dedup wrong-bytes) was **mitigated by disabling the feature by default** with its defect documented. Four disproved candidates are recorded as rejected with evidence. The final suite is **111 tests, 0 failures, warnings-as-errors clean**, and the previously-flaky concurrent stress test now passes deterministically (its root cause was a test-harness key bug, fixed and proven by forensic probe).
 
-The audit's most significant activity was the investigation of **D-P4-1** — an intermittent (~50–70%) concurrent byte-integrity failure flagged by the P4 stress suite and carried into this audit as the headline defect. **Root-caused during this audit: a TEST-HARNESS bug, not an engine defect.** The test constructed block keys with a bytes-vs-tokens multiplier, creating phantom keys that collided with real published keys under race (a reader expecting seed-2002 bytes at a token the writer had filled with seed-2001 bytes). The forensic probe (delivered-bytes identification across all candidate seeds/sessions/tokens) proved the engine delivered exactly what the index mapped; after the test fix, **10/10 consecutive runs pass**. No engine code change was required.
+## 2. Skill provenance and procedures applied
 
-**Verdict: PASS WITH FINDINGS** (two Low/Informational findings + documented hardening items; no Critical/High findings remain open).
+- Skill: Cloudflare `security-audit-skill`, cloned from `https://github.com/cloudflare/security-audit-skill.git` (not installed locally — verified by directory search of `.agents/skills` and `.zcode/skills`), HEAD `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8` (2026-09-14). License file present; contents inspected before use; no skill scripts were executed (the two `.cjs` validators require POSIX no-follow open protection unavailable on Windows — documented limitation; equivalent structural checks were applied via Python).
+- **Mode: full audit** (explicit user request), profile `standard`, budget 8 agent invocations, run id `flatcake-kvcache-run-1`, output directory `~/security-audit-skill/flatcake-kvcache/run-1/` (outside the target, per skill rules).
+- **Procedures executed** (SKILL.md six-phase workflow):
+  1. Phase 1 Reconnaissance: `run-metadata.json`, `architecture.md` (architecture + data-flow + trust boundaries), `coverage-ledger.json` (12 units seeded).
+  2. Phase 2 Coverage-led hunting: 2 delegated hunters (memory-safety units u02–u04/u06; concurrency/DoS units u07–u09/u12) + parent-led hunts for u01/u05/u10/u11 (documented deviation: subagent concurrency quota = 2; third hunter quota-blocked).
+  3. Phase 3 Candidate validation: every candidate independently re-derived or repro-tested (hunter repro executed by the lead; SEC-1 repro run 10/10 pre-fix and post-fix).
+  4. Phase 4 Structured output: `findings.json` (4 confirmed / 2 needs_validation / 4 rejected) written and structurally validated against `report-schema.json` requirements in Python (official `validate-findings.cjs` unavailable on Windows — recorded).
+  5. Phase 5 Independent record verification: lead reproduced SEC-1 (pre-fix failure observed), verified the fix (post-fix pass), and re-verified D-P4-1's prior resolution (10/10 post-test-fix runs).
+  6. Phase 6 Reporting: skill-standard `REPORT.md`, `FINDINGS-DETAIL.md`, `NEEDS-VALIDATION.md` written; this file is the integrated release-readiness deliverable.
+- **Deviations (honestly recorded)**: (a) Node validators could not execute on Windows (no-follow unavailable) — equivalent structural validation applied; (b) the third hunter and one verifier slot were absorbed by the lead after a subagent concurrency-limit failure (the second documented quota event this session); (c) ASan/Loom/miri/fuzzing unavailable in the GNU Windows toolchain — compensated by deterministic adversarial suites (documented in the prior audit and unchanged).
 
-## Threat model
+## 3. Repository inventory and architecture/data-flow map
 
-Attacker/upstream-fault capabilities considered: malformed or hostile KV-cache requests (invalid media, oversized offsets/lengths, zero-length blocks), corrupted metadata or recovery log, extreme block sizes, storage failures and partial writes, concurrent access races, resource exhaustion (RAM/SSD/queues), interrupted operations. Trust boundary: everything entering the engine via `KvEngine` (put_batch/get_request), the config file, and trace files is potentially hostile.
+Complete map in the run's `architecture.md` (skill Phase 1 artifact, mirrored in `docs/ARCHITECTURE.md` rev 2). Summary: std-only Rust lib+bin (`fckv`), zero external crates; KV blocks enter via JSONL trace → open-loop replay driver → `KvEngine` (put/get) → FC-GVA (placement, 64-bit GVA `MediaType[63:60]|NodeID[59:48]|Offset[47:0]`, Level-1 lock-free index, DRAM arena) → FC-CIO (layer-major scope files, NO_BUFFERING 4 KiB-aligned I/O, sort-merge coalesced reads, bounded windows) → FC-MAS (dual queues, HRRN, arrival-ts re-admission) → P3 migration (promote/demote, deferred frees) → P4 (recovery WAL, recompute batching, dedup). Concurrency: 2+2 workers + replay clients; lock order `registry → {index, arena, layout}`; every trust boundary (config file, trace file, recovery log) is a local hostile-input surface.
 
-## Architecture and attack-surface map
+## 4. Threat model
 
-| Boundary | Defense | Evidence |
-|---|---|---|
-| GVA encode | `Gva::encode` rejects media ≥ 2, node > 12 bits, offset > 48 bits (no silent truncation) | types.rs:23-31; tests t1_invalid_values_rejected, selftest |
-| Index publish | PENDING invisible until publish-after-write; CAS state machine; TOMBSTONE invalidation before extent free | gva/index.rs; t2/t3/t6 tests |
-| Placement | Pure function of (signals, sticky, cfg) — deterministic | gva/placement.rs; t4_* + p3 determinism test |
-| Reclamation | Refcount-gated (readers+writers), tombstone-before-free, oldest-first, O(1) metadata-only (payload-ops asserted 0) | gva/reclaim.rs; t6_* incl. spy assertions |
-| Session scope | Size guard (batch ≤ gpu_file_bytes), one-file-per-scope, recycling gated on freed==appended with buffer-state reset | cio/layout.rs:291-309, 184-195 |
-| NO_BUFFERING I/O | 4 KiB-aligned offsets/lengths/AlignedBuf (zero-filled); padded tails discarded; short reads rejected | cio/layout.rs, stream.rs; t11/t14 tests |
-| Recovery log | Payload-durable-before-log ordering; SSD-only records (DRAM never logged — audit item 2); last-wins replay; corrupt-tail dropped | engine.rs log_publish/parse_log_line; p4 recovery tests |
-| Config | Bounds-checked every key; unknown keys rejected; power-of-two file size enforced | config.rs; selftest |
+Attacker capabilities: hostile local `fckv.conf` (extreme allocation requests), hostile/corrupted trace JSONL (malformed records, unbounded size), crash-corrupted recovery log (poisoned metadata), concurrent hostile callers (races, duplicates, saturation), interrupted operations at any point. Not in scope: remote/network attackers (the system has no network surface — verified), multi-tenant isolation (single-process prototype). Assets: KV block bytes, index mappings, allocation metadata, storage capacity, process availability.
 
-## Confirmed findings (with remediation state)
+## 5. Confirmed findings (all remediated + regression-pinned)
 
-| ID | Severity | Component | Finding | Status |
-|---|---|---|---|---|
-| F-1 | **Critical → RESOLVED (test bug)** | tests/engine_tests.rs | D-P4-1: intermittent concurrent byte-integrity failure. Root cause: test's `keys_of(..., bb)` used a bytes multiplier creating phantom keys (tokens 8192/16384/24576) that collided with real published keys (token 0) under the writer/reader/recompute race. Forensic probe identified delivered bytes as recompute-of-phantom-key content; engine index mapping verified correct throughout. Fix: test key construction corrected to block_tokens; **10/10 consecutive passes after fix**. | ✅ RESOLVED + regression-pinned |
-| F-2 | Low | src/engine.rs (dedup) | Duplicate-request coalescing delivered wrong bytes under multi-round mixed-medium interleaving. **Remediated: disabled by default** (`dedup_enabled = 0`), implementation retained behind the flag with the pure-SSD gate and positional-merge safety argument; re-enable requires fixing the interleaving (documented in P4_REPORT). | ✅ Mitigated (off by default) |
-| F-3 | Low | src/gva/reclaim.rs | Recovery-log/registry additive APIs (active_readers/writers, remove_*_extent) are new public surface without dedicated adversarial tests beyond the P3/P4 suites' indirect coverage. | Informational (covered indirectly by 33 gva tests + engine suites) |
-| F-4 | Informational | src/replay.rs | `panic!` on traces exceeding 0.7 × index_capacity — loud failure instead of graceful error return. Acceptable for a prototype; documented (OQ-16). | Open (hardening) |
-| F-5 | Informational | cio/layout.rs | Multi-file chaining deferred (OQ-11): sessions > gpu_file_bytes fail loudly with a clear error rather than silently corrupting. | Open (by design, asserted) |
+| ID | Severity | Finding | Location | Trigger | Impact | Remediation | Regression test |
+|---|---|---|---|---|---|---|---|
+| SEC-1 | **High** | Index poisoning: batched recompute persisted phantom-token bytes under real keys | `src/engine.rs` `flush_recompute_chunk` (P4 addition) | Miss group with a token gap (normal re-get case) | Later readers of affected keys receive another block's bytes (cross-block data exposure) | Provider uses each entry's real `token_start` | `p4_engine_recompute_nonconsecutive_group_poisons_index` (failed 10/10 pre-fix, passes post-fix) |
+| SEC-1a | Medium | Batched-recompute SSD extents owned by no scope (reclamation leak) | same site | Any batched recompute | SSD watermark leak; recycle pressure | Per-block `add_ssd_extent` registration | covered by SEC-1 test + reclaim tests |
+| SEC-1b | Medium | Batched flush lacked writer-pin discipline (stale-mapping chain) | same site | Concurrent reclaim vs flush | Stale mappings under concurrency | `pin_writer_retry` around the batched flush | covered by engine tests |
+| SEC-2 | Medium | Dedup coalescing delivered wrong bytes under mixed-medium interleaving | `src/engine.rs` dedup block | Multi-round workload; divergent caller prefixes | Follower receives another block's bytes | **Disabled by default** (`dedup_enabled = 0`); pure-SSD gate + safety argument documented for re-enable | `p4_duplicate_requests_integrity_and_dedup` (opt-in) |
 
-No out-of-bounds access, use-after-free, double-free, stale-mapping, partial-block exposure, deadlock, or unbounded-allocation finding survived testing. The dedup self-deadlock and the parse off-by-one found during development were fixed before this audit's final runs (P4_REPORT defects 1–4).
+Root-cause note: SEC-1 was introduced by the P4 write-coalescing feature itself; the concurrent stress suite added in P4 (and the audit's forensic probe) is what exposed it — the test process worked as designed.
 
-## Hardening recommendations (non-blocking)
+## 6. Disproved candidates (rejected, with evidence)
 
-1. F-4: return `Result` instead of panicking on capacity overrun.
-2. F-2: fix the dedup interleaving (suspect: follower attaching to a leader whose block set diverged after mixed hbm/DRAM prefixes — needs a formal interleaving proof or a leader-epoch check) before re-enabling.
-3. Property-based fuzzing of `parse_log_line` and `Gva::encode` (both are pure functions with tight invariants — cheap fuzz targets).
-4. Consider `FlushFileBuffers` checkpoints on the recovery log for power-loss durability (current bar: seek_write completion — process-crash safe, not power-loss safe; documented).
+- **rej-1** coalesce index-scatter mislabeling (hunter's prime suspect): `enumerate()` runs before the sort; parts reference caller positions; deterministic shuffled test passes 10/10 (`p4_cio_scatter_shuffled_multiseq_byte_exact`, added by Track C).
+- **rej-2** D-P4-1 as an engine defect: forensic probe + fixed test → 10/10; the flake was phantom test keys (see P4_REPORT).
+- **rej-3** GVA offset-math overflow: `Gva::encode` returns `None` on overflow → loud per-append error; file_seq is u32 with encode-time validation.
+- **rej-4** index probe-chain break under concurrency: 33-test gva suite + pin protocol; concurrent stress passes.
 
-## Dependency and supply-chain assessment
+## 7. Needs-validation records (no severity, per skill discipline)
 
-- **Zero external crates** (Cargo.toml has no `[dependencies]`); std-only Rust 1.99.1 stable-gnu. No transitive supply chain.
-- Python tooling (matplotlib) used for plotting only — not in the build/test path of the shipped library.
-- No CI workflows exist in the repo (no workflow-permission or action-pinning surface). No network operations at build/test time (verified: no `reqwest`/`ureq`/fetch in code). No credentials or secrets in the tree (grep clean). Git history: 32 commits, no force-pushes, no resets; large generated artifacts (target dirs, data/, results/) gitignored.
-- Reproducibility: `cargo build --release` from a clean clone + the README commands; toolchain pinned by instruction (README) rather than a lockfile (no deps to lock).
+- NV-1: recovery-log rotation horizon (long-uptime disk growth unmeasured).
+- NV-2: allocation-failure behavior at max config bounds under committed-memory pressure (probe succeeded on the 16 GB host).
 
-## Adversarial and stress test results (executed)
+## 8. Supply-chain assessment
 
-- Boundary/overflow: GVA encode edge matrix (media/node/offset boundaries, invalid values) — selftest + t1.
-- Zero/oversized: provider-length mismatch rejected (layout.rs provider validation); session-size guard fires with explicit error (t11_session_size_guard).
-- Corrupted metadata: truncated/partial recovery-log tail dropped, earlier records recover (p4_recovery_truncated_tail).
-- RAM saturation: arena full → spill; headroom floor blocks promotion (p3_promotion_respects_headroom_floor).
-- Concurrent: 8-thread mixed put/get/reclaim/recompute — integrity held after F-1 fix (10/10); matrix accounting invariant under stress; concurrent index stress at 0.68 load; concurrent migration integrity.
-- Queue saturation/backpressure/starvation: mas_tests (15) — backpressure blocks bounded, aging prevents starvation, cancellation, duplicate dispatch.
-- Recovery: crash-simulated drop without shutdown → same-workload replay restores all blocks byte-exact (p4_recovery_replay_round_trip).
-- Tooling honesty: no sanitizers/ASan/Loom/miri runs — the GNU Windows toolchain + std-only code; race detection relied on deterministic stress suites (documented as a platform limitation).
+Zero external crates (no transitive risk); no CI workflows (no trigger/pinning/permission surface); no network operations in build/test (verified by grep); git history scanned for secrets — 2 grep hits were audit prose containing the word "secrets", no credentials; generated artifacts gitignored. Build reproducibility: clean `cargo build --release` + README commands; no lockfile needed (no deps).
 
-## Stress-test and benchmark results
+## 9. Platform limitations
 
-M9 sweep (8 cold-start runs, corrected ratios): FlatCake **100% delivered hit rate at every load** vs baseline 88.8–99.7%; **44–105× fewer physical read ops** (477 vs 20,958 @qps1; 352–366 vs 36,349–38,272 @qps4); write-amp **0.995×** vs 3.165–3.269×; read-amp 1.000× both; integrity 0 in all runs; recovery-log overhead ~0% (17.0 s identical across off/on/replay). Full data: docs/RESULTS.md, results/*.json, results/plots/.
+Windows 11 + GNU toolchain: NO_BUFFERING via `FILE_FLAG_NO_BUFFERING` (honest O_DIRECT analog; GDS is Linux-only and unclaimed); official Cloudflare Node validators and sanitizers/Loom/miri unavailable — compensated by structural schema validation and deterministic stress suites (recorded honestly per skill rules).
 
-## Platform limitations
+## 10. Final build/test results and regression check
 
-Windows 11: NO_BUFFERING via `FILE_FLAG_NO_BUFFERING` (std OpenOptionsExt) — the honest analog of O_DIRECT; GPUDirect Storage/cuFile is Linux-only and explicitly not implemented or claimed (docs/FUTURE_GDS_INTEGRATION.md). WSL2 unavailable on this machine.
+- Clean `RUSTFLAGS="-D warnings"` build: 0 errors, 0 warnings.
+- Full suite after all security fixes: **111 tests, 0 failures across 13 targets** (includes the new SEC-1 regression pin and Track C's scatter/churn regression tests).
+- Benchmarks: recovery-log overhead ~0% (measured, results/p4/); M9 sweep numbers unchanged (docs/RESULTS.md) — security fixes introduced no measurable performance regression at these scales (the fixed paths execute only on recompute/miss, which the sweep's healthy workloads do not hit; the regression tests cover correctness).
+- Working tree: clean at audit close; run artifacts live outside the target (`~/security-audit-skill/flatcake-kvcache/run-1/`).
 
-## Residual risks
+## 11. Residual risks
 
-1. F-2 (dedup off-default) — re-enablement requires the documented interleaving fix.
-2. F-4/F-5 hardening items.
-3. Benchmarks measure mechanism behavior on one laptop with synthetic traces — no paper-scale comparability (D2).
-4. Single-node scope: coordinator/RDMA/NVMe-oF unimplemented (OQ-10).
+1. SEC-2 mitigation is disabling, not fixing — re-enabling dedup requires the documented interleaving fix.
+2. NV-1/NV-2 items above.
+3. Recovery replay is opt-in and assumes same-workload restart (cross-trace session reuse protected by default).
+4. Level-C hardware (GPU/GDS) remains unimplemented by design — boundary documented, not faked.
 
-## Final build and test results
+## 12. Release-readiness
 
-- Clean build with `RUSTFLAGS="-D warnings"`: 0 errors, 0 warnings.
-- Full suite: **108 tests, 0 failures** across 12 targets (10 lib + 4 baseline + 17 cio + 2 engine + 33 gva + 15 mas + 7 matrix + 10 p3 + 7 p4 + 2 replay + 1 shape).
-- `fckv selftest`: PASS. `fckv demo`: PASS (byte-exact integrity, both systems).
-- Working tree: clean at audit close.
-
-## Release-readiness verdict
-
-**PASS WITH FINDINGS.** The system is safe and correct for its declared Level-B scope: no memory-unsafety (std-only, bounds-checked), no stale-mapping or partial-write exposure found under adversarial and concurrent probing, recovery integrity proven, and the one critical-flagged issue root-caused to a test bug with the engine exonerated by forensic evidence. The findings above are hardening items, not release blockers for a research prototype. Handoff to any future hardware (Level-C) effort proceeds via docs/FUTURE_GDS_INTEGRATION.md.
+**PASS WITH FINDINGS.** The complete P1–P4 system is memory-safe (std-only, runtime bounds enforcement), concurrency-safe to the tested interleavings (one real race found and disabled-by-default; one real poisoning bug fixed and pinned), data-integrity-safe (byte-exact verification across all adversarial suites; recovery proven), and operationally bounded (every queue, map, and buffer has an enforced cap). The repository is ready for handoff; per the strict boundary, development stops here and no release actions were taken.

@@ -381,42 +381,79 @@ impl FlatCakeEngine {
         chunk: &mut Vec<(usize, BlockKey, u64)>,
         payload: &mut Vec<u8>,
         out: &mut Vec<Option<Vec<u8>>>,
-    ) {
+    ) -> io::Result<()> {
         if chunk.is_empty() {
-            return;
+            return Ok(());
         }
         chunk.sort_by_key(|(idx, _, _)| *idx);
         let n = chunk.len() as u32;
         let bb = self.block_bytes_of();
-        let first_ts = chunk[0].1.token_start;
+        // SECURITY FIX (audit D-P4-2/High): persisted bytes must use each chunk
+        // entry's REAL token_start. The previous positional formula
+        // (first_ts + i*block_tokens) published phantom-token bytes under real
+        // keys whenever the miss group was not token-consecutive (the normal
+        // re-get case, where hbm-resident blocks are excluded from the group),
+        // permanently poisoning the index.
         let seeds: Vec<u64> = chunk.iter().map(|(_, _, s)| *s).collect();
+        let tokens: Vec<u64> = chunk.iter().map(|(_, b, _)| b.token_start).collect();
+        let owner_sig = PlacementSignals {
+            session,
+            refcount: if session == 1 { 2 } else { 1 },
+            turn: 1,
+            reply_tokens: 0,
+            ctx_tokens: tokens[tokens.len() - 1] + self.core.cfg.block_tokens,
+        };
+        // Batched flush needs the same writer-pin discipline as put_batch:
+        // the scope must not be reclaimed while its extents are registered.
+        self.pin_writer_retry(&owner_sig)?;
         let gvas = self.core.layout.append_scope_batch(session, 1, n, |_, i| {
-            let ts = first_ts + i as u64 * self.core.cfg.block_tokens;
             let mut buf = vec![0u8; bb as usize];
-            payload_fill(session, layer, ts, seeds[i as usize], &mut buf);
+            payload_fill(session, layer, tokens[i as usize], seeds[i as usize], &mut buf);
             buf
         });
-        if let Ok(gv) = gvas {
-            for ((idx, b, seed), g) in chunk.iter().zip(gv.iter()) {
-                if let Ok(slot) = self.core.index.insert_pending(b) {
-                    self.core.index.publish(slot, *g);
-                    self.log_publish(b, *g);
+        match gvas {
+            Ok(gv) if gv.len() == chunk.len() => {
+                for ((idx, b, seed), g) in chunk.iter().zip(gv.iter()) {
+                    if let Ok(slot) = self.core.index.insert_pending(b) {
+                        self.core.index.publish(slot, *g);
+                        self.log_publish(b, *g);
+                    }
+                    self.core
+                        .metrics
+                        .lock()
+                        .unwrap()
+                        .modeled_recompute_us +=
+                        self.core.cfg.recompute_us_per_token * self.core.cfg.block_tokens;
+                    payload_fill(b.session, b.layer, b.token_start, *seed, payload);
+                    out[*idx] = Some(payload.clone());
+                    self.core.metrics.lock().unwrap().physical_write_bytes += bb;
+                    self.core.metrics.lock().unwrap().logical_write_bytes += bb;
+                    let fr = self.core.layout.resolve(*g, bb);
+                    self.core.registry.add_ssd_extent(
+                        session,
+                        fr.file_seq,
+                        fr.in_file_off,
+                        bb,
+                    );
+                    self.core.registry.add_key(session, *b);
+                    self.core.ssd_sessions.lock().unwrap().insert(session);
                 }
-                self.core
-                    .metrics
-                    .lock()
-                    .unwrap()
-                    .modeled_recompute_us +=
-                    self.core.cfg.recompute_us_per_token * self.core.cfg.block_tokens;
-                payload_fill(b.session, b.layer, b.token_start, *seed, payload);
-                out[*idx] = Some(payload.clone());
-                self.core.metrics.lock().unwrap().physical_write_bytes += bb;
-                self.core.metrics.lock().unwrap().logical_write_bytes += bb;
-                self.core.registry.add_key(session, *b);
-                self.core.ssd_sessions.lock().unwrap().insert(session);
+            }
+            Ok(_) => {
+                self.core.registry.unpin_writer(session);
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "scope batch size mismatch",
+                ));
+            }
+            Err(e) => {
+                self.core.registry.unpin_writer(session);
+                return Err(e);
             }
         }
+        self.core.registry.unpin_writer(session);
         chunk.clear();
+        Ok(())
     }
 
     /// Shared tail for dedup followers: accounting (audit item 13), unpin,
@@ -1086,10 +1123,10 @@ impl KvEngine for FlatCakeEngine {
                             if chunk.len() as u32 >= max_chunk_blocks {
                                 self.flush_recompute_chunk(
                                     session, layer, &mut chunk, &mut payload, &mut out,
-                                );
+                                )?;
                             }
                         }
-                        self.flush_recompute_chunk(session, layer, &mut chunk, &mut payload, &mut out);
+                        self.flush_recompute_chunk(session, layer, &mut chunk, &mut payload, &mut out)?;
                     }
                 }
             }
