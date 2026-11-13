@@ -203,7 +203,7 @@ fn engine_concurrent_mixed_sessions_no_loss_no_corruption() {
             for _ in 0..6 {
                 let mut blocks = keys_of(&shared_put(2, 2, 900), bb);
                 let mut seeds = vec![900u64; blocks.len()];
-                blocks.extend(keys_of(&put(2, 2, 2, 2, 2, 2002), bb));
+                blocks.extend(keys_of(&put(2, 2, 2, 2, 2, 2002), cfg.block_tokens));
                 seeds.extend(vec![2002u64; 4]);
                 let gspec = GetSpec {
                     id: rand_id(),
