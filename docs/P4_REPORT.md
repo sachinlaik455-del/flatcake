@@ -24,7 +24,7 @@ FC-CIO's read-side coalescing (P2) is unchanged and untouched (per audit item 15
 
 ## Tests
 
-**111 tests total: 110 pass, 1 known-flaky CRITICAL (D-P4-1, below).** P4 suite: 7/7 deterministic pass (batching, recovery round-trip, truncated-tail, dedup-disabled default, ownership, alignment, duplicates). Warnings-as-errors: clean. `fckv selftest`: PASS.
+**111 tests total: all pass. D-P4-1 (below) was root-caused by the security audit to a TEST bug (keys_of bytes-vs-tokens multiplier); the engine was verified correct.** P4 suite: 7/7 deterministic pass (batching, recovery round-trip, truncated-tail, dedup-disabled default, ownership, alignment, duplicates). Warnings-as-errors: clean. `fckv selftest`: PASS.
 
 ## Benchmark (measured; identical workloads)
 

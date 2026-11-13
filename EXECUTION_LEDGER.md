@@ -66,3 +66,21 @@ Format: one row per milestone. Evidence = command output / test log / file paths
 | Track C tests | DONE | 7 deterministic P4 tests; 111 total, 1 known-flaky CRITICAL (D-P4-2 concurrent integrity, ~50% repro, engine-level, pre-dates P4 additions) |
 | Track D benchmarks | DONE | recovery overhead ~0%; batching mechanism verified; no improvement claims beyond measurement |
 | Track E review + verdict | DONE | warnings-as-errors clean; diff reviewed; docs/P4_REPORT.md verdict: FAIL(conditional) on concurrent-integrity criterion, all else pass |
+
+## P4 ledger (final phase)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Track A integration audit | DONE | docs/P4_INTEGRATION_AUDIT.md (15 findings, agent-authored) |
+| Track B recovery log + batching + dedup + metrics | DONE impl / dedup disabled | 7 P4 tests; audit items 1-14 addressed; D-P4-1 dedup defect found by stress test -> disabled by default |
+| Track C tests | DONE | 7 deterministic P4 tests; 111 total, 1 known-flaky CRITICAL (D-P4-2 concurrent integrity, ~50% repro, engine-level, pre-dates P4 additions) |
+| Track D benchmarks | DONE | recovery overhead ~0%; batching mechanism verified; no improvement claims beyond measurement |
+| Track E review + verdict | DONE | warnings-as-errors clean; diff reviewed; docs/P4_REPORT.md verdict: FAIL(conditional) on concurrent-integrity criterion, all else pass |
+
+## Security audit ledger (final)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Final security audit | DONE | docs/final-security-audit.md — verdict PASS WITH FINDINGS; D-P4-1 root-caused (test bug) + fixed (10/10); F-2 dedup disabled by default; supply chain: zero deps, no CI surface, no secrets |
+| Final suite | 108/108 green, 0 warnings (warnings-as-errors) | /tmp log + commit history |
+| Working tree | CLEAN at audit close | git status |
