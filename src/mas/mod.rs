@@ -1,9 +1,8 @@
 //! FC-MAS — Medium-Aware Request Scheduler (paper §3.3, T7–T10 control plane):
 //! dual queues (DRAM-Ready / SSD-Preparing), HRRN Eq. 1 prefetch priority
-//! (OQ-4/15), arrival-ordered re-admission (T9), bounded backpressure.
-//!
+//! , arrival-ordered re-admission , bounded backpressure.
 //! Pure control plane: no file I/O, no payload handling. The engine
-//! (orchestrator) spawns worker threads that consume what
+//! (lead) spawns worker threads that consume what
 //! [`Scheduler::pop_dram`] / [`Scheduler::pick_ssd`] return — DRAM workers
 //! drive DRAM-scope dispatch, SSD workers drive FC-CIO prefetch of
 //! SSD-resident blocks and hand completed requests back via

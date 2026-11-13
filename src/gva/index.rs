@@ -1,19 +1,16 @@
 //! gva::index — fixed-capacity lock-free open-addressed Level-1 index
-//! (T2/T3/T21; DECISION D13, OQ-16).
 //!
 //! Fixed capacity, **no resize** (startup asserts unique blocks ≤ 0.7 ×
 //! capacity — engine-side, OQ-16), linear probing (+1), four slot states
-//! EMPTY/PENDING/PUBLISHED/TOMBSTONE. TOMBSTONE keeps probe chains intact
-//! (EGM finding) and is reusable only by new inserts; lookups skip it.
-//!
-//! ## Publish-after-write (T3)
+//! EMPTY/PENDING/PUBLISHED/TOMBSTONE. TOMBSTONE keeps probe chains intact and
+//! is reusable only by new inserts; lookups skip it.
+//! ## Publish-after-write 
 //! `insert_pending` claims a slot in PENDING state; `publish` stores the GVA
 //! (Release) and only then flips PENDING → PUBLISHED (Release CAS). Readers
 //! loading PUBLISHED (Acquire) synchronize with that CAS, so they can never
 //! observe PUBLISHED with a stale GVA. A get racing an in-flight put observes
 //! Miss or Pending — the engine counts Pending separately as
 //! `pending_racing_gets` and both as a miss by design.
-//!
 //! ## Hash-store ordering (deliberate refinement of the tasking note)
 //! The tasking note says "store key_hash first, then CAS state". Storing the
 //! hash BEFORE the state CAS has a race a CAS loser cannot recover from: its
@@ -32,12 +29,10 @@
 //! An alternative protocol (hash-as-claim: CAS the hash array 0→h and zero it
 //! on tombstone) was considered and rejected as a larger departure from the
 //! specified state-CAS-claim protocol.
-//!
 //! ## Memory ordering
 //! All state loads are Acquire; all state CASes are Release/AcqRel. The GVA is
 //! stored with Release before the PENDING→PUBLISHED CAS, so an Acquire load of
 //! PUBLISHED guarantees visibility of both the GVA and the owner's hash store.
-//!
 //! ## Known limitation (documented; closed at engine level)
 //! Lookup re-checks the state after loading the GVA, closing the
 //! publish↔invalidate race. A full invalidate→reinsert→publish ABA on the same
@@ -51,7 +46,7 @@ use crate::types::{BlockKey, Gva, Lookup};
 use crate::util::key_hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Slot states (D13). Stored in `states[i]`; zero-initialized slots are EMPTY.
+/// Slot states . Stored in `states[i]`; zero-initialized slots are EMPTY.
 pub const EMPTY: u64 = 0;
 pub const PENDING: u64 = 1;
 pub const PUBLISHED: u64 = 2;
@@ -96,7 +91,7 @@ impl Index {
         self.cap
     }
 
-    /// Claim a PENDING slot for `key` (T2). Idempotent for duplicate
+    /// Claim a PENDING slot for `key` . Idempotent for duplicate
     /// identities: if the key is already PENDING/PUBLISHED, its existing slot
     /// is returned. `Err(IndexFull)` when no EMPTY/TOMBSTONE slot exists.
     pub fn insert_pending(&self, key: &BlockKey) -> Result<usize, IndexFull> {
@@ -108,7 +103,7 @@ impl Index {
             let st = self.states[idx].load(Ordering::Acquire);
             match st {
                 EMPTY | TOMBSTONE => {
-                    // Claim by CAS; losers re-probe (D13).
+                    // Claim by CAS; losers re-probe .
                     if self.states[idx]
                         .compare_exchange(st, PENDING, Ordering::AcqRel, Ordering::Acquire)
                         .is_ok()
@@ -122,7 +117,7 @@ impl Index {
                 }
                 PENDING | PUBLISHED => {
                     if self.hashes[idx].load(Ordering::Acquire) == h {
-                        // Duplicate identity → idempotent existing slot (T2).
+                        // Duplicate identity → idempotent existing slot .
                         return Ok(idx);
                     }
                     // Different key: keep probing.
@@ -133,7 +128,7 @@ impl Index {
         Err(IndexFull)
     }
 
-    /// Publish-after-write (T3): store the GVA with Release, then flip
+    /// Publish-after-write : store the GVA with Release, then flip
     /// PENDING → PUBLISHED. Returns false if the slot is no longer PENDING
     /// (rolled back, or already PUBLISHED — double-put detection aid).
     ///
@@ -153,7 +148,7 @@ impl Index {
     }
 
     /// Abort an in-flight write: PENDING → TOMBSTONE (never EMPTY — the
-    /// tombstone keeps probe chains intact, EGM finding; D13).
+    /// tombstone keeps probe chains intact).
     pub fn rollback(&self, slot: usize) -> bool {
         debug_assert!(slot < self.cap as usize);
         self.states[slot]

@@ -1,4 +1,4 @@
-//! Engine API shared by the FlatCake engine and the tiered baseline (orchestrator-owned).
+//! Engine API shared by the FlatCake engine and the tiered baseline (shared).
 //! The replay driver talks to both systems exclusively through `KvEngine`.
 
 use crate::types::{BlockKey, Metrics};

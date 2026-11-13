@@ -1,6 +1,5 @@
 //! gva::arena — pre-allocated DRAM pool behind the frozen [`DramArena`] trait
 //! (ARCHITECTURE §3: "pre-allocated, bump + session-extent free").
-//!
 //! Allocation strategy: **first-fit reuse of freed extents is preferred over
 //! bump growth** so that `used_bytes` (the DRAM-watermark input, §5) always
 //! reflects live data; the bump pointer only advances when no free extent
@@ -8,10 +7,8 @@
 //! list and coalesced with adjacent neighbors on free, so a fully freed pool
 //! collapses back into one extent (and `reserve` of the full size succeeds
 //! again).
-//!
-//! Payload copies happen inside the arena lock (EGM #12: ms-scale for MB
+//! Payload copies happen inside the arena lock (ms-scale for MB
 //! payloads, accepted for correctness at Level B, profiled at M10).
-//!
 //! Offsets returned by `reserve` fit the 48-bit GVA Offset field (asserted at
 //! construction); encode with `Gva::encode(MEDIA_DRAM, node, off)`.
 
@@ -91,7 +88,7 @@ impl DramArena for Arena {
             return Ok(off);
         }
         // Neither the free list nor the bump region can satisfy: DRAM-full.
-        // Caller implements the placement spill path (OQ-6: put → SSD, scope
+        // Caller implements the placement spill path (put → SSD, scope
         // flips to SSD, metrics.dram_spill_puts++).
         Err(ArenaFull)
     }

@@ -1,5 +1,8 @@
 # CHANGELOG.md
 
+## 2026-11-13 — repository cleanup
+- Removed obsolete phase working documents (PHASE_2_*, P3/P4_REPORT, AUDIT_REPORT, FINAL_REPORT, RESEARCH_READINESS, EXECUTION_LEDGER, AGENT_OWNERSHIP), temporary patch scripts, and generated experiment configs. Durable content (decisions, invariants, audit findings, benchmark methodology) lives in the retained docs. Comment sweep across src/ removed agent-process noise; no behavioral changes (111/111 tests re-verified).
+
 ## 2026-11-13 — P4: FC-CIO integration finalization
 - Recovery WAL (SSD publishes + invalidates; payload-durable-first; opt-in same-workload replay; truncated-tail tolerance); recompute write-batching per (owner-session, layer) + shared-block ownership fix; duplicate-request coalescing (DISABLED by default: concurrency defect found by stress test); avg-read-io metrics; warnings-as-errors clean; 111 tests (1 known-flaky CRITICAL documented — D-P4-2). Verdict: FAIL(conditional) on the concurrency-integrity criterion; full report docs/P4_REPORT.md.
 
@@ -27,3 +30,6 @@
 - M2: architecture rev 2 after EGM design + readiness reviews (3 critical findings fixed pre-code: reclamation protocol, NO_BUFFERING, open-loop replay); frozen contracts (types/config/util).
 - M3: workload generator (agentic/oneshot/mixed), tiered baseline, open-loop replay driver; integrity verification caught 3 real bugs (seed derivation, ABBA deadlock, worker wakeup).
 - M4/M6: FC-GVA (33 tests) and FC-CIO (17 tests) by specialist agents with accepted deviations D21–D24.
+
+## Note on historical references
+Phase working documents removed in the 2026-11-13 cleanup (PHASE_2_*, P3/P4_REPORT, AUDIT_REPORT, FINAL_REPORT, RESEARCH_READINESS, EXECUTION_LEDGER, AGENT_OWNERSHIP) are referenced in the entries above as historical records. Their durable technical content was consolidated into the retained docs (ARCHITECTURE, DECISIONS, LIMITATIONS, final-security-audit, RESULTS) before deletion.

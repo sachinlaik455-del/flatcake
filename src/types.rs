@@ -1,6 +1,5 @@
-//! FROZEN shared contract (ARCHITECTURE.md §1 Phase-0 freeze).
+//! FROZEN shared contract (shared contract).
 //! Modules implemented by separate agents build against these types.
-//! Changes require orchestrator approval and a ledger entry.
 
 /// MediaType field values (paper §3.2: 0=DRAM, 1=SSD, encodings >=2 reserved).
 pub const MEDIA_DRAM: u64 = 0;
@@ -41,7 +40,7 @@ impl Gva {
 }
 
 /// Logical block identity (paper §3.2: session ID, layer, token range).
-/// token_start = start_blk * block_tokens (OQ-7).
+/// token_start = start_blk * block_tokens .
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct BlockKey {
     pub session: u64,
@@ -94,7 +93,7 @@ impl Request {
 /// DRAM arena interface implemented by `gva::arena`, consumed by engine/baseline.
 /// Offsets are 48-bit-safe byte offsets (fit GVA Offset field).
 pub trait DramArena: Send + Sync {
-    /// Reserve `len` bytes; Err(ArenaFull) triggers the DRAM-full spill path (OQ-6).
+    /// Reserve `len` bytes; Err(ArenaFull) triggers the DRAM-full spill path .
     fn reserve(&self, len: u64) -> Result<u64, ArenaFull>;
     fn write(&self, off: u64, buf: &[u8]);
     fn read(&self, off: u64, len: u64, out: &mut [u8]);
@@ -111,7 +110,7 @@ pub struct ArenaFull;
 pub trait SsdLayout: Send + Sync {
     /// Map an SSD GVA to (file_seq, in_file_offset, len) for direct I/O.
     fn resolve(&self, gva: Gva, len: u64) -> FileRange;
-    /// O(1) metadata free (T6). Must perform zero payload-byte operations.
+    /// O(1) metadata free . Must perform zero payload-byte operations.
     fn free_extent(&self, file_seq: u32, off: u64, len: u64);
     /// Logical bytes written (watermark denominator, ARCHITECTURE §5).
     fn logical_bytes(&self) -> u64;
@@ -166,7 +165,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    /// Delivered hit rate (OQ-17): delivered blocks / requested blocks.
+    /// Delivered hit rate : delivered blocks / requested blocks.
     pub fn delivered_hit_rate(&self) -> f64 {
         let hits = self.hit_hbm + self.hit_dram + self.hit_ssd;
         let total = hits + self.misses;

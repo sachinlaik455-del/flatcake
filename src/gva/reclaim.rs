@@ -1,30 +1,25 @@
 //! gva::reclaim — session-scope registry and the watermark reclamation
 //! protocol (T6, D15, ARCHITECTURE §5).
-//!
 //! ## Scope registry
 //! One `ScopeState` per session scope: medium (placement stickiness),
 //! creation timestamp (oldest-first reclaim order), reader/writer refcounts,
 //! the DRAM/SSD extents the scope owns, and the index keys it published.
-//!
 //! ## D15 reclamation sequence (per reclaimed scope)
 //! (1) pick the OLDEST scope with no reader and no writer refs
 //!     (order key = `(creation_ts_us, session)`);
 //! (2) **tombstone-invalidate its index entries FIRST** — kills stale
 //!     GVA→freed-offset wrong-data hits before any byte is freed;
 //! (3) return extents via the O(1) metadata free ops — zero payload-byte
-//!     operations, asserted through `metrics.reclaim_payload_ops` (EGM #12c);
+//!     operations, asserted through `metrics.reclaim_payload_ops` ;
 //! (4) remove the scope; `metrics.reclaim_events += 1`.
-//!
 //! The registry lock is held across (select → tombstone → free → remove),
 //! making the reader/writer ref-check atomic against pins. This closes the
-//! resolve→read TOCTOU and the in-flight-writer window (D15's three race
+//! resolve→read TOCTOU and the in-flight-writer window (three race
 //! windows).
-//!
 //! ## LOCK ORDER (crate-wide)
 //! registry → {index, arena, layout}; never the reverse. No lock is held
 //! across physical file I/O — `free_extent` on both traits is a metadata-only
 //! op, so holding the registry lock across it is legal (§3 invariant).
-//!
 //! ## Engine contract (required for the protocol to hold)
 //! * a writer calls `pin_writer(session)` BEFORE `arena.reserve` / layout
 //!   append, and `unpin_writer` only after extents and keys are registered —
@@ -34,14 +29,12 @@
 //!   scope was reclaimed concurrently = clean miss (recompute path);
 //! * `create_scope` is idempotent (first creation wins, pinning the
 //!   oldest-first reclaim order).
-//!
 //! ## Watermark semantics (ARCHITECTURE §5, OQ-12)
 //! A pass triggers when `usage > high_watermark × capacity`; it then frees
 //! oldest-unreferenced scopes until `usage ≤ low_watermark × capacity` or
 //! until nothing is reclaimable (advisory watermark — writes continue, §5).
 //! DRAM capacity = arena capacity over `arena.used_bytes()`; SSD capacity =
 //! `gpu_file_pool × gpu_file_bytes` over logical bytes written.
-//!
 //! ## Mixed-medium scopes (spill flip, OQ-6)
 //! A scope that flipped to SSD mid-life still owns already-placed DRAM
 //! extents (write-once, never migrated). Each pass therefore classifies every
@@ -49,7 +42,6 @@
 //! only keys resolving to DRAM GVAs and frees only `dram_extents`, keeping
 //! the scope alive until the SSD pass retires the rest. A scope is removed
 //! once it holds no extents of either medium and no unresolved keys.
-//!
 //! ## Decoupling
 //! This module works only against the frozen [`DramArena`] / [`SsdLayout`]
 //! traits (`types.rs`) — it never touches concrete `cio` types (the CIO
@@ -204,7 +196,7 @@ impl ScopeRegistry {
     }
 
     /// Reader ref — taken at GVA-resolution time, held until that request's
-    /// I/O completes (D15). False = scope unknown/gone → clean miss.
+    /// I/O completes . False = scope unknown/gone → clean miss.
     pub fn pin_reader(&self, session: u64) -> bool {
         let mut m = self.scopes.lock().expect("scope registry poisoned");
         match m.get_mut(&session) {
@@ -220,7 +212,7 @@ impl ScopeRegistry {
         self.dec_ref(session, |s| &s.reader_refs);
     }
 
-    /// Writer ref — a PENDING write pins its scope (D15).
+    /// Writer ref — a PENDING write pins its scope .
     pub fn pin_writer(&self, session: u64) -> bool {
         let mut m = self.scopes.lock().expect("scope registry poisoned");
         match m.get_mut(&session) {
@@ -242,7 +234,7 @@ impl ScopeRegistry {
         m.get(&session).map(|s| s.medium)
     }
 
-    /// DRAM-full spill (OQ-6, EGM #5): the scope flips to SSD; already-placed
+    /// DRAM-full spill : the scope flips to SSD; already-placed
     /// DRAM extents are not migrated (write-once invariant) but stay
     /// reclaimable by the DRAM pass via extent ownership.
     pub fn flip_to_ssd(&self, session: u64) -> bool {
@@ -293,9 +285,9 @@ pub enum ReclaimStore<'a> {
     Ssd(&'a dyn SsdLayout),
 }
 
-/// One reclamation pass (T6). Returns the total number of payload bytes
+/// One reclamation pass . Returns the total number of payload bytes
 /// freed. Triggers only when `usage > high × capacity`; drains to
-/// `usage ≤ low × capacity` (OQ-12); returns early (0 freed) below the high
+/// `usage ≤ low × capacity` ; returns early (0 freed) below the high
 /// watermark and stops with the advisory-watermark break when nothing is
 /// reclaimable (ARCHITECTURE §5).
 pub fn reclaim_pass(
@@ -333,7 +325,7 @@ pub fn reclaim_pass(
         // One registry-lock hold per scope: the ref-check, the tombstone
         // pass, the frees and the removal are atomic against every other
         // registry operation (pin/unpin/create/add) — this closes the
-        // resolve→read TOCTOU and the in-flight-writer window (D15).
+        // resolve→read TOCTOU and the in-flight-writer window .
         let mut scopes = registry.scopes.lock().expect("scope registry poisoned");
 
         // (1) oldest unreferenced scope owning extents of this medium.
@@ -356,7 +348,7 @@ pub fn reclaim_pass(
         };
         let state = scopes.get_mut(&session).expect("victim vanished under lock");
 
-        // (2) tombstone-invalidate THIS medium's index keys FIRST (D15: no
+        // (2) tombstone-invalidate THIS medium's index keys FIRST (no
         // stale GVA may survive into a freed offset). Keys resolving to the
         // other medium (mixed scopes after a spill flip) stay untouched.
         let mut kept_keys = Vec::new();
@@ -378,7 +370,7 @@ pub fn reclaim_pass(
         state.index_keys = kept_keys;
 
         // (3) free extents — O(1) metadata ops, ZERO payload-byte operations.
-        // metrics.reclaim_payload_ops must remain 0 (EGM #12c): any future
+        // metrics.reclaim_payload_ops must remain 0 : any future
         // non-metadata free implementation must increment it and be caught.
         let mut scope_bytes = 0u64;
         match store {

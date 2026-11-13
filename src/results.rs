@@ -1,5 +1,5 @@
 //! Benchmark run record writer — pinned results JSON schema (ARCHITECTURE §11).
-//! Field names here are the contract with python/plot_results.py (EGM blocker #3).
+//! Field names here are the contract with python/plot_results.py (frozen contract).
 
 use crate::config::Config;
 use crate::types::Metrics;

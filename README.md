@@ -1,4 +1,4 @@
-# FlatCake Level-B Prototype (fckv)
+# FlatCake (fckv)
 
 A CPU-based, real-SSD-I/O implementation of the architecture from *FlatCake: A Flat KVCache Storage Architecture for LLM Serving* (arXiv:2610.38355), built and tested on Windows 11 / 16 GB RAM / NVMe laptop. Rust (std-only, zero dependencies) + Python for plots.
 
@@ -9,24 +9,26 @@ A CPU-based, real-SSD-I/O implementation of the architecture from *FlatCake: A F
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"    # rustup default stable-x86_64-pc-windows-gnu
 cargo build --release                   # zero external crates
-cargo test --release                    # 90 tests, all suites
+cargo test --release                    # 111 tests, all suites
 ./target/release/fckv.exe selftest      # GVA round-trip + config validation
 ./target/release/fckv.exe demo          # end-to-end demo, both systems (see below)
 ```
 
-While a benchmark is running, use per-suite invocations (`cargo test --release --test p2_matrix_tests`) — the bench holds the exe file lock (Windows).
+While a benchmark is running, use per-suite invocations (e.g. `cargo test --release --test engine_tests`) — a running bench holds the exe file lock on Windows.
 
 ## Demo (vertical slice, <2 min)
 
 ```bash
 ./target/release/fckv.exe demo
 ```
-Generates a deterministic agentic trace (3 sessions × 10 turns + shared prompt), replays it open-loop through BOTH systems with identical budgets, verifies every delivered block byte-exactly. Observed 2026-11-11: **flatcake 82.5% vs baseline 35.3% delivered hit rate, integrity_fail=0 both** (mechanism behavior at forced-SSD budgets; not a paper-scale claim).
+Generates a deterministic agentic trace (3 sessions × 10 turns + shared prompt), replays it open-loop through both systems with identical budgets, and verifies every delivered block byte-exactly. Observed: **flatcake 82.5% vs baseline 35.3% delivered hit rate, integrity_fail=0 both** (mechanism behavior at forced-SSD budgets; not a paper-scale claim).
 
 ## Benchmarks
 
 ```bash
 bash benchmarks/run_sweep.sh            # 8 cold-start runs: {baseline,flatcake} x qps{1,4} x seeds{11,12}
+bash benchmarks/run_p3.sh               # adaptive-placement experiment
+bash benchmarks/run_p4.sh               # recovery-log overhead experiment
 python python/plot_results.py results/ results/plots   # summary.csv + PNG charts
 python -I scripts/audit_io_probe.py     # raw-disk calibration (buffered vs NO_BUFFERING)
 ```
@@ -43,9 +45,28 @@ Protocol: `docs/BENCHMARK_METHODOLOGY.md` (cold start, no warm-up, symmetric mis
 | `src/engine.rs` | integrated FlatCakeEngine (KvEngine) |
 | `src/baseline.rs` | tiered LRU + staging + FIFO buckets (the system the paper critiques, fairly built) |
 | `src/workload.rs`, `src/replay.rs` | deterministic traces; open-loop driver with integrity verification |
-| `docs/` | paper analysis, traceability (T1–T24), open questions (OQ-1..21), architecture, Phase-2 reports |
-| `EXECUTION_LEDGER.md`, `DECISIONS.md` | evidence-based milestone log; 24+ numbered decisions |
+| `configs/` | benchmark configurations (m11 adaptive-placement, p3/p4 experiments) |
+| `docs/` | analysis, architecture, results, security audit — see table below |
+
+## Documentation
+
+| Path | Contents |
+|---|---|
+| `docs/ARCHITECTURE.md` | module map, request lifecycle, lock discipline, config reference |
+| `docs/PAPER_ANALYSIS.md` | full paper extraction (mechanisms, formulas, evaluation) |
+| `docs/PAPER_TO_IMPLEMENTATION.md` | requirements → code → tests traceability (T1–T24) |
+| `docs/RESULTS.md` | measured benchmark results and interpretation |
+| `docs/BENCHMARK_METHODOLOGY.md` | metric definitions, parity table, protocol |
+| `docs/WORKLOAD_MODEL.md` | trace format, regime→motivation mapping, sizing guards |
+| `docs/OPEN_QUESTIONS.md` | recorded interpretations and unresolved decisions (OQ-1..21) |
+| `DECISIONS.md` | numbered design decisions (D1–D26) with rationale |
+| `docs/LIMITATIONS.md` | scope boundaries, resolved defect record, platform limits |
+| `docs/FUTURE_GDS_INTEGRATION.md` | Level-C (GPU/GDS) migration path |
+| `docs/final-security-audit.md` | final security audit (PASS WITH FINDINGS) |
+| `CHANGELOG.md` | change history |
 
 ## Status
 
-Phase 1 (research → architecture) and Phase 2 (implementation) complete: 90/90 tests, demo + sweep verified. See `PHASE_2_STATUS.md`, `docs/PHASE_2_TEST_REPORT.md`, `docs/PHASE_2_PAPER_FIDELITY.md`. Remaining: benchmark analysis (M9), adaptive-placement extension (M11), final audit (M12).
+**Complete and audited.** 111 tests, 0 failures (warnings-as-errors clean); `docs/final-security-audit.md` verdict: PASS WITH FINDINGS. Security findings and their remediations are recorded there and in `docs/LIMITATIONS.md`.
+
+Key results (Level-B, this laptop): FlatCake sustains a 100% delivered hit rate at every load vs 88.8–99.7% for the tiered baseline; 44–105× fewer physical read ops; write amplification 0.995× vs 3.27×; byte-exact integrity across all suites. See `docs/RESULTS.md`.

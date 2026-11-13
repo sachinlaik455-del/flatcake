@@ -1,4 +1,4 @@
-//! Conventional tiered baseline (T17): HBM window → DRAM LRU → SSD, host-staged SSD
+//! Conventional tiered baseline : HBM window → DRAM LRU → SSD, host-staged SSD
 //! restores, LRU-eviction-ordered SSD placement in FIFO-recycled buckets.
 //! Faithfully reproduces the mechanisms the paper criticizes (Observations 1 & 2):
 //! - every put enters DRAM first; eviction order (not session order) decides SSD layout;
@@ -8,7 +8,7 @@
 //!   sessions (the cross-session prefix invalidation of paper §3.2);
 //! - restored blocks are promoted back into DRAM (churn → more eviction writes);
 //! - no read coalescing: one physical read per SSD block (O(layers × blocks)).
-//! NO_BUFFERING file I/O on both systems (D12) so `measured:` numbers are honest.
+//! NO_BUFFERING file I/O on both systems  so `measured:` numbers are honest.
 
 use crate::engine_api::{GetSpec, KvEngine, PutSpec};
 use crate::hbm::HbmWindow;

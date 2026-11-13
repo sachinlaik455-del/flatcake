@@ -1,5 +1,4 @@
 //! cio::layout — T11/T20: SSD scope-file (GPU File) layout, ARCHITECTURE §6.
-//!
 //! Frozen byte formula (ARCHITECTURE §6): the SSD GVA offset packs the file as
 //! `off[47:0] = file_seq[47:28] | in_file_off[27:0]` (2^28 = 256 MiB per file).
 //! Segments are appended layer-major per turn batch:
@@ -7,11 +6,10 @@
 //! so every segment start — and therefore every block offset when
 //! `block_bytes` is a 4 KiB multiple (default config) — satisfies the T20
 //! alignment discipline.
-//!
 //! All scope-file writes use `FILE_FLAG_NO_BUFFERING` handles (ARCHITECTURE §2,
 //! OQ-21) with 4 KiB-aligned offsets, 4 KiB-aligned buffers (see
 //! [`AlignedBuf`]) and lengths padded up to 4 KiB multiples (pad bytes zero).
-//! Multi-file chaining is deferred (OQ-11/D20): a session scope must fit one
+//! Multi-file chaining is deferred (OQ-11): a session scope must fit one
 //! pre-allocated `gpu_file_bytes` file; a batch exceeding it is a hard error
 //! (the workload never triggers it — the guard is the assert).
 
@@ -31,8 +29,7 @@ use crate::types::{FileRange, Gva, SsdLayout, MEDIA_SSD, SSD_FILE_MAX, SSD_IN_FI
 /// lengths and buffer addresses are multiples of this.
 pub const IO_ALIGN: u64 = 4096;
 
-/// `FILE_FLAG_NO_BUFFERING` (winbase.h) — unbuffered scope-file I/O (OQ-21,
-/// EGM critical #2: NTFS page cache would make every `measured:` number a
+/// `FILE_FLAG_NO_BUFFERING` (winbase.h) — unbuffered scope-file I/O (OQ-21: NTFS page cache would make every `measured:` number a
 /// cache artifact).
 pub const FILE_FLAG_NO_BUFFERING: u32 = 0x0200_0000;
 
@@ -127,7 +124,7 @@ fn preallocate_file(dir: &Path, file_seq: u32, file_bytes: u64) -> io::Result<()
 /// updates per file (writes must be serialized per file, ARCHITECTURE §3).
 #[derive(Default)]
 struct FileMeta {
-    /// Free extents `(off, len)` — reclamation bookkeeping (T6), metadata only.
+    /// Free extents `(off, len)` — reclamation bookkeeping , metadata only.
     free: Vec<(u64, u64)>,
     /// Logical bytes appended to this file (padding excluded).
     appended: u64,
@@ -288,7 +285,7 @@ impl SsdLayoutImpl {
                 seg_starts.push(p);
                 p += seg_len;
             }
-            // Session-size guard (OQ-11/D20): a scope must fit one file. The
+            // Session-size guard (OQ-11): a scope must fit one file. The
             // last segment's write is padded, hence the padded end is checked.
             let physical_end = seg_starts[layers as usize - 1] + seg_pad;
             if physical_end > self.file_bytes {
@@ -435,7 +432,7 @@ impl SsdLayout for SsdLayoutImpl {
         }
     }
 
-    /// O(1) metadata free (T6 / EGM #12c): pushes the extent onto the file's
+    /// O(1) metadata free: pushes the extent onto the file's
     /// free list and adjusts counters. ZERO payload-byte operations (no file
     /// reads, no writes, no zeroing) — asserted by the reclamation tests.
     fn free_extent(&self, file_seq: u32, off: u64, len: u64) {

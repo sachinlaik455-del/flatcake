@@ -1,6 +1,6 @@
 //! GPU-HBM window analog (ARCHITECTURE §7): byte-resident LRU-by-delivery cache of
-//! recently delivered blocks. Identical budget and policy for BOTH systems (fairness,
-//! EGM #6/#8). Owned by engines behind a Mutex; not Sync itself.
+//! recently delivered blocks. Identical budget and policy for both systems.
+//! Owned by engines behind a Mutex; not Sync itself.
 
 use std::collections::{BTreeMap, HashMap};
 

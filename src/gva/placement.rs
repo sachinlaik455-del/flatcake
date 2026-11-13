@@ -1,5 +1,4 @@
 //! gva::placement — frozen write-time placement precedence (T4/T5, D14).
-//!
 //! **This is the OQ-19 reference interpretation of paper Table 2.** The
 //! paper's Table-2 rows carry no priority order and genuinely conflict under
 //! append stickiness ("short-turn chat → DRAM" vs "turn = 1 → one-shot →
@@ -8,15 +7,13 @@
 //! asymmetric-cost argument (§3.2): a reusable block on SSD is served by
 //! coalesced GDS reads, not a miss — SSD-stuck short chats are acceptable
 //! behavior, not a bug (OQ-20).
-//!
 //! Evaluated per **scope creation** (first put of a session scope). Appends
 //! inherit the scope medium **if the scope is SSD** (SSD on-disk contiguity
 //! is a paper invariant, §3.4); appends to DRAM scopes re-evaluate the rows
 //! fresh (DRAM grouping is irrelevant; no migration either way). The engine
 //! passes `sticky = registry.sticky_medium(session)`; `Some(Ssd)`
 //! short-circuits, `Some(Dram)` / `None` evaluate all rows in order.
-//!
-//! The DRAM-full spill (OQ-6, EGM #5) is not a signal of this function: when
+//! The DRAM-full spill  is not a signal of this function: when
 //! the arena reserve fails, the engine places that put on SSD and flips the
 //! scope (`reclaim::ScopeRegistry::flip_to_ssd`), after which stickiness
 //! keeps every subsequent append on SSD.

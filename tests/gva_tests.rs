@@ -547,7 +547,7 @@ fn t4_dram_full_spill_flips_scope_to_ssd_oq6() {
                 assert!(reg.add_dram_extent(sess, off, 1024));
             }
             Err(_) => {
-                // DRAM-full spill (OQ-6, EGM #5): this put goes to SSD and the
+                // DRAM-full spill (OQ-6): this put goes to SSD and the
                 // scope flips to SSD; the engine counts metrics.dram_spill_puts.
                 spill_puts += 1;
                 assert!(reg.flip_to_ssd(sess));
@@ -802,7 +802,7 @@ fn t6_reclaim_ssd_path_uses_layout_and_packed_offsets() {
 
 #[test]
 fn t6_reclaim_frees_dram_extents_of_flipped_scope() {
-    // OQ-6/EGM#5: a scope that flipped to SSD mid-life still owns DRAM
+    // OQ-6: a scope that flipped to SSD mid-life still owns DRAM
     // extents; the DRAM pass must free exactly those without touching the
     // scope's SSD keys/extents; the SSD pass then retires the rest.
     let mut cfg = Config::default();

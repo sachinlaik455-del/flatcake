@@ -188,7 +188,6 @@ fn t11_padding_inter_segment_alignment() {
     assert_eq!(layout.resolve(gvas2[0], bb).in_file_off, 40960);
     assert_eq!(layout.logical_bytes(), 3 * seg_len);
 
-    // Read back via SEGMENT descriptors (segment starts are the aligned units).
     let seg_descs = vec![d(0, 0, seg_len), d(0, seg_pad, seg_len), d(0, 40960, seg_len)];
     let (merged, stats) = coalesce(seg_descs, 65536);
     assert_eq!(merged.len(), 1, "padding gaps (<=4095B) are bridged");

@@ -1,5 +1,5 @@
 //! fckv — FlatCake Level-B prototype (bin). Library code lives in src/lib.rs.
-//! Subcommands: selftest | gen-workload | bench | demo (P2-M5 vertical slice).
+//! Subcommands: selftest | gen-workload | bench | demo .
 
 use fckv::baseline::BaselineEngine;
 use fckv::config;

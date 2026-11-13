@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""I/O calibration probe (A8 assignment, absorbed by orchestrator).
+"""I/O calibration probe.
 
 Measures raw sequential and random-position read throughput/latency for 4 KiB and
 1 MiB operations on this machine's NVMe, both buffered and (on Windows)

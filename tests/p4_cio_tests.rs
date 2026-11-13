@@ -45,7 +45,7 @@ fn put(session: u64, turn: u64, layers: u32, start: u64, n: u32, seed: u64) -> P
     }
 }
 
-/// Keys with the correct BLOCK-TOKENS multiplier (P3 lessons applied).
+/// Keys use the BLOCK-TOKENS multiplier (engine convention).
 fn keys_of(spec: &PutSpec, bt: u64) -> Vec<BlockKey> {
     let mut v = Vec::new();
     for l in 0..spec.layers {
@@ -414,7 +414,7 @@ fn p4_batched_appends_stay_aligned() {
 //    byte-exact blocks with zero misses.
 //
 // 3. `p4_engine_recompute_nonconsecutive_group_poisons_index` — CONFIRMED
-//    engine defect (engine.rs is orchestrator-owned; the one-line fix is
+//    engine defect (the one-line fix is
 //    REPORTED, not applied here): `flush_recompute_chunk` regenerates the
 //    PERSISTED bytes with a POSITIONAL token (`first_ts + i * block_tokens`)
 //    instead of each chunk entry's real `token_start`. A (session, layer)
@@ -650,7 +650,7 @@ fn p4_engine_concurrent_shuffled_multisession_byte_exact() {
 }
 
 // Test 3 — CONFIRMED engine defect repro / regression pin (see section
-// comment above). engine.rs is orchestrator-owned: the fix is reported, not
+// comment above). The fix is reported, not
 // applied here.
 #[test]
 fn p4_engine_recompute_nonconsecutive_group_poisons_index() {

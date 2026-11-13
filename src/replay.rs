@@ -1,7 +1,6 @@
 //! Open-loop replay driver (T18, ARCHITECTURE §9): paces records at
 //! `start + ts_us × time_scale`, executes puts+gets on a bounded worker pool
 //! (backpressure at queue_cap), verifies payload integrity, collects metrics.
-//!
 //! Latency semantics: request-level latency (issue → completion, including work-queue
 //! wait) is measured here and REPLACES `metrics.lat_samples` in the final snapshot.
 //! Engine-side lat_samples are service time; queue_wait_us / prep_us stay engine-side.
@@ -45,7 +44,7 @@ pub fn run(
     csv_window_us: u64,
     csv_path: Option<&str>,
 ) -> ReplayOutput {
-    // Startup guard (OQ-16 / ARCHITECTURE §3): unique blocks must fit the
+    // Startup guard: unique blocks must fit the
     // fixed-capacity Level-1 index at its documented 0.7 load factor.
     {
         let mut unique: std::collections::HashSet<(u64, u32, u64)> = Default::default();

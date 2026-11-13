@@ -1,7 +1,5 @@
 //! FC-MAS scheduler core (paper §3.3; ARCHITECTURE §3 "Queues" row, §9 open-loop).
-//!
 //! Two queues behind one `Mutex` + `Condvar` (ARCHITECTURE §3 lock discipline):
-//!
 //! - **DRAM-Ready Queue**: min-ordered by `(arrival_ts_us, seq_no)` — `seq_no`
 //!   breaks ties FIFO. Holds requests classified all-DRAM (`max_j GVA_j < 2^60`)
 //!   at arrival AND re-admitted SSD requests, which keep their ORIGINAL
@@ -11,20 +9,17 @@
 //! - **SSD-Preparing Queue**: unordered Vec; selection = argmax HRRN priority,
 //!   recomputed LAZILY at each dispatch decision (OQ-4) with an O(n) scan
 //!   (n ≤ queue_cap). Not maintained sorted.
-//!
 //! HRRN Eq. 1 (paper §3.3, verbatim): `Priority_i = 1 + wait_time_i / KV_size_i`
 //! with `wait_time` in seconds and `KV_size` in MiB (dimensionless, OQ-15).
 //! `KV_size <= 0` is guarded to 1.0 MiB. Smaller restores get higher initial
 //! priority (lower mean queuing delay); `wait_time` grows linearly, so
 //! multi-GiB restores are guaranteed eventual dispatch (starvation prevention).
-//!
 //! Wait accounting: `enqueued_us` is stamped once at first enqueue (monotonic
 //! µs clock) and preserved across SSD prefetch → re-admission, so a popped
 //! request's `wait_us` covers its full queue stay (paper §3.3 seniority rule;
 //! ARCHITECTURE §9 honest TTFT analog: measured latency includes queue wait).
 //! A re-admitted request therefore contributes two wait samples: its SSD-segment
 //! wait (at `pick_ssd`) and its total-stay wait (at `pop_dram`).
-//!
 //! Shutdown contract (documented): `shutdown` wakes ALL waiters, is idempotent,
 //! and makes `pop_dram`/`pick_ssd` return `None` immediately even if items
 //! remain queued — callers must drain BEFORE shutdown. `enqueue` calls that are
@@ -32,7 +27,6 @@
 //! the engine only enqueues while running). `readmit` after shutdown is
 //! likewise a no-op. Items still queued stay visible in `stats()` but are
 //! never dispatched.
-//!
 //! Backpressure boundary (documented, exact): `enqueue` blocks while
 //! `dram.len() + ssd.len() >= queue_cap`. The depth check and the insert are
 //! one atomic step under the lock (a woken enqueuer re-checks the predicate
@@ -152,7 +146,7 @@ struct Inner {
 }
 
 /// Medium-Aware Request Scheduler (paper §3.3). Pure control plane: no file
-/// I/O, no payload handling — the engine (orchestrator) spawns worker threads
+/// I/O, no payload handling — the engine (lead) spawns worker threads
 /// that consume what [`Scheduler::pop_dram`] / [`Scheduler::pick_ssd`] return.
 /// Thread-safe: std `Mutex` + one `Condvar`; every state change notifies all
 /// waiters (poppers, pickers and blocked enqueuers), so no wakeup is lost.

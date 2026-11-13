@@ -1,5 +1,4 @@
 //! cio::stream — T13/T14: bounded direct reads (paper §3.4 layer pipeline).
-//!
 //! Per-worker [`Reader`] owns its NO_BUFFERING file handles (opened lazily per
 //! `file_seq`) and its double-buffered window. [`read_ranges`] walks each
 //! merged range in chunks of at most `window_bytes` (rounded down to the 4 KiB
@@ -7,16 +6,13 @@
 //! while the current chunk is scattered to the sinks, the next chunk's
 //! `seek_read` is kicked off into the alternate buffer on a scoped thread
 //! (ping-pong, paper Fig. 5 layer pipeline).
-//!
-//! Memory per worker is O(window_bytes) regardless of request size (T14):
+//! Memory per worker is O(window_bytes) regardless of request size :
 //! exactly two window buffers are cycled, no per-request allocation scales
 //! with the read. Saturation/backpressure is handled ABOVE (scheduler queues,
 //! ARCHITECTURE §3) — a read is never aborted on saturation.
-//!
 //! Padded read tails beyond the requested bytes are discarded and never
 //! delivered; bridged-gap bytes are never delivered either (parts map real
 //! descriptors only — T12 reconstruction is exact).
-//!
 //! `Reader::drop` closes all file handles (default drop of the handle map).
 
 use std::collections::HashMap;
@@ -98,7 +94,6 @@ impl Reader {
 /// in file order (possibly split across several sink calls when a descriptor
 /// crosses a chunk boundary — the sink must append). Padded tails and bridged
 /// gaps are never delivered.
-///
 /// Metrics: `physical_read_ops` +1 and `physical_read_bytes` +padded length
 /// actually read, per completed `seek_read`.
 pub fn read_ranges(
@@ -163,8 +158,8 @@ fn read_one_range(
             let padded = align_up(logical, IO_ALIGN) as usize;
 
             // 1. Obtain the current chunk: join the prefetch (which read this
-            //    chunk during the previous scatter) or, for the very first
-            //    chunk, read synchronously.
+            // chunk during the previous scatter) or, for the very first
+            // chunk, read synchronously.
             let (buf, nread) = match prefetch.take() {
                 Some(h) => {
                     let (b, r) = h
@@ -191,7 +186,7 @@ fn read_one_range(
             metrics.physical_read_bytes += nread as u64;
 
             // 2. Kick off the NEXT chunk's read into the alternate buffer now,
-            //    so it overlaps the scatter below.
+            // so it overlaps the scatter below.
             if i + 1 < nchunks {
                 let mut nbuf = bufs[1 - cur]
                     .take()
@@ -207,9 +202,9 @@ fn read_one_range(
             }
 
             // 3. Scatter this chunk's LOGICAL bytes to per-descriptor sinks.
-            //    The padded tail beyond `logical` is discarded (never
-            //    delivered); bridged gaps are covered by no part and thus
-            //    never delivered either.
+            // The padded tail beyond `logical` is discarded (never
+            // delivered); bridged gaps are covered by no part and thus
+            // never delivered either.
             for (k, &(desc_idx, rel_off)) in range.parts.iter().enumerate() {
                 let plen = range.part_lens[k];
                 let s0 = rel_off.max(ch_off);

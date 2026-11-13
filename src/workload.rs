@@ -1,4 +1,4 @@
-//! Deterministic synthetic workload generator (T19) + trace parsing.
+//! Deterministic synthetic workload generator  + trace parsing.
 //! Canonical generator is THIS module via `fckv gen-workload` (DECISION D17).
 //! Session 1 = globally shared prompt. Real sessions start at 2. `shared_with`
 //! names a session whose blocks are PREPENDED to the request (hybrid requests, OQ-14).
@@ -187,7 +187,7 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
     let mut recs: Vec<TraceRecord> = Vec::new();
     let mut st = p.seed;
 
-    // Session-size and SSD-budget guards (D20, EGM #8).
+    // Session-size and SSD-budget guards.
     if p.regime != "oneshot" {
         let session_bytes = p.turns * tok_per_turn * p.layers as u64 * p.bytes_per_token;
         if session_bytes > p.gpu_file_bytes {
@@ -236,7 +236,7 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
             // Round-robin across sessions so several sessions are active concurrently.
             for turn in 1..=p.turns {
                 for s in 2..=p.sessions + 1 {
-                    let reply = 500; // short replies; ctx is what makes these SSD-bound (OQ-19)
+                    let reply = 500; // short replies; the growing ctx makes the scope SSD-bound
                     let ctx_after = turn * tok_per_turn * p.layers as u64;
                     if turn > 1 {
                         let own_blocks = ((turn - 1) * p.blocks_per_turn as u64) as u32;
@@ -252,7 +252,7 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
                                 reply,
                                 ctx,
                                 0,
-                                1, // hybrid request: shared prompt + own history (OQ-14)
+                                1, // hybrid request: shared prompt + own history 
                             ));
                         }
                     }
@@ -307,7 +307,7 @@ pub fn generate(p: &GenParams) -> Result<(u64, u64), String> {
             written
         }
         "shift" => {
-            // Regime-shift trace (M11): first half of the timeline is one-shot
+            // Regime-shift trace : first half of the timeline is one-shot
             // sessions; agentic sessions activate only afterwards.
             let mut written = 0u64;
             let agentic = p.sessions / 2;

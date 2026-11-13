@@ -1,6 +1,6 @@
 //! Frozen shared helpers: hash, deterministic payload, percentiles, minimal JSON.
 
-/// FNV-1a 64-bit (frozen hash for the index + payload seeding, EGM #12b).
+/// FNV-1a 64-bit hash for the index and payload seeding.
 pub fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {

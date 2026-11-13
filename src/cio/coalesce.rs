@@ -1,24 +1,20 @@
 //! cio::coalesce — T12: read-time sort-merge (paper §3.4).
-//!
 //! Sorts descriptors by `(file_seq, in_file_off)` and linearly merges:
 //! - adjacent ranges (`next.start == cur.end`),
 //! - overlaps (`next.start < cur.end`, extend by `max(end)`),
 //! - bridged gaps (`gap = next.start - cur.end <= gap_bridge_bytes`; Δgap =
 //!   64 KiB in the paper — inter-segment padding <= 4095 B is absorbed by
 //!   construction, ARCHITECTURE §6).
-//!
 //! Bridged bytes are read from disk (overread) but belong to NO descriptor:
 //! `parts` maps real descriptors only, so scattering never delivers bridged
-//! bytes and reconstruction is exact (T12). Merging never crosses file_seq.
+//! bytes and reconstruction is exact . Merging never crosses file_seq.
 
 use crate::types::FileRange;
 
 /// One coalesced physical read span.
-///
 /// `parts[k] = (desc_idx, rel_off)` maps descriptor `desc_idx` into the span,
 /// where `rel_off` is the ABSOLUTE in-file offset of that descriptor's data.
 /// `part_lens[k]` is the byte length of `parts[k]` (parallel vector).
-///
 /// Note: the planned 2-tuple `parts` alone cannot express per-part spans for
 /// overlapping/duplicate descriptors (their rel_offs do not partition the span
 /// monotonically), and T12 requires exact per-descriptor reconstruction — so a
@@ -42,8 +38,7 @@ pub struct CoalesceStats {
     pub overread_bytes: u64,
 }
 
-/// Sort-merge descriptors into physical read spans (T12).
-///
+/// Sort-merge descriptors into physical read spans .
 /// Zero-length descriptors are skipped (they carry no bytes; their indices
 /// simply never appear in `parts`). For equal sort keys the input order is
 /// kept (stable sort); the merged *bytes* are identical for any permutation.

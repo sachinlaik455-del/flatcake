@@ -1,28 +1,15 @@
-//! FlatCakeEngine (T10/T15, ARCHITECTURE §2): integrates FC-GVA (placement/index/
-//! arena/reclaim), FC-CIO (layout/coalesce/stream), FC-MAS (dual-queue scheduler)
-//! behind the `KvEngine` interface. Mirrors paper Fig. 3:
-//! - write path: scope-direct placement → GVA allocate → physical write → publish;
-//! - control path: dual queues — pure-DRAM requests enter the DRAM-Ready Queue and
-//!   are dispatched by dram workers in arrival order; the DRAM-resident portion of
-//!   hybrid requests is delivered inline (paper §3.3: DRAM blocks are "pinned in
-//!   place" while FC-CIO prefetches the SSD blocks); SSD requests are prefetched
-//!   under HRRN and RE-ADMITTED by original arrival_ts (completion order follows
-//!   arrival order);
-//! - data path: DRAM hits via arena copies; SSD hits via coalesced bounded-window
-//!   reads (per-ssd-worker `Reader`).
-//!
-//! Contract notes honored from module docs:
-//! - registry lock order registry → {index, arena, layout} (gva/mod.rs);
-//! - pin_writer before arena.reserve; add extents+keys before unpin_writer;
-//! - pin_reader taken at resolution time, released when the request completes (D15);
-//! - reclaim trigger usage > high_wm × capacity, drain to ≤ low_wm (OQ-12);
-//! - reclaimed SSD scopes are detached from the layout (release_session) so no
-//!   stale scope can append into a recycled file (A2 finding M2).
-//!
-//! A2 (docs/PHASE_2_ARCHITECTURE.md) findings addressed in this revision:
-//! M1 trait imports, M2 stale-scope detach, M3 read_ranges 5-arg + local-metrics
-//! merge, M4 no double-Arc, R5 hybrid DRAM-block delivery, error-swallowing
-//! hardening (reconcile-undelivered-as-recompute), shutdown-bounded waits.
+//! FlatCake engine: integrates FC-GVA (placement, index, arena, reclamation),
+//! FC-CIO (layer-major scope files, coalesced reads) and FC-MAS (dual-queue
+//! scheduling) behind the `KvEngine` interface, mirroring paper Fig. 3.
+//! Write path: scope-direct placement -> allocate -> durable write -> publish.
+//! Read path: pure-DRAM requests dispatch by arrival order; the DRAM-resident
+//! portion of a hybrid request is served inline (paper §3.3 pins such blocks in
+//! place) while only the SSD portion is enqueued; SSD requests are prefetched
+//! under HRRN and re-admitted by their original arrival timestamp.
+//! Invariants: no lock is held across file I/O (registry -> {index, arena,
+//! layout}); writer pins run from reservation through publication; reader pins
+//! are taken at resolution and released at completion; reclaimed scopes are
+//! tombstoned in the index before their extents return to the pools.
 
 use crate::cio::{coalesce, read_ranges, Reader, SsdLayoutImpl};
 use crate::config::Config;
@@ -59,7 +46,7 @@ struct Slot {
     err: Option<String>,
     done: bool,
     /// Duplicate-request coalescing: leader owns the fingerprint; followers
-    /// wait on this slot and merge `out` by GVA match (audit item 12).
+    /// wait on this slot and merge `out` by GVA match .
     fp: u64,
 }
 
@@ -75,8 +62,7 @@ struct EngineCore {
     slots: Mutex<HashMap<u64, Arc<(Mutex<Slot>, Condvar)>>>,
     next_id: AtomicU64,
     /// Sessions this engine has placed on SSD — used to detach reclaimed scopes
-    /// from the layout (A2 finding M2: a stale scope entry must never append
-    /// into a recycled file).
+    /// from the layout (
     ssd_sessions: Mutex<HashSet<u64>>,
     /// M11 adaptive evidence: served gets per session (ADAPTIVE_EXTENSION.md).
     gets_served: Mutex<HashMap<u64, u64>>,
@@ -95,10 +81,10 @@ struct EngineCore {
     /// Serializes migration state transitions (publish swaps + bookkeeping).
     migration_lock: Mutex<()>,
     // -------- P4 durability + request coalescing -----------------------------
-    /// Recovery log writer (audit item 2: SSD publishes + invalidates only;
+    /// Recovery log writer (SSD publishes + invalidates only;
     /// DRAM publishes are process-volatile and never logged).
     recovery_log: Option<Mutex<std::io::BufWriter<std::fs::File>>>,
-    /// In-flight SSD request dedup: fingerprint -> leader slot (audit item 11).
+    /// In-flight SSD request dedup: fingerprint -> leader slot .
     inflight: Mutex<HashMap<u64, Arc<(Mutex<Slot>, Condvar)>>>,
 }
 
@@ -121,7 +107,7 @@ pub struct FlatCakeEngine {
 
 impl FlatCakeEngine {
     pub fn new(cfg: &Config) -> io::Result<FlatCakeEngine> {
-        // P4 recovery log (audit items 2/4/5): opened in append mode. Replay is
+        // Recovery log: opened in append mode. Replay is
         // OPT-IN (recovery_log = 2) and assumes a same-workload restart — a
         // different trace reusing session ids must NOT see stale blocks as
         // valid (integrity would catch it, but correctness first). The log is
@@ -359,7 +345,7 @@ impl FlatCakeEngine {
                     Ok(())
                 }
                 Err(_) => {
-                    // DRAM-full spill on re-persist (OQ-6): flip scope, write to SSD.
+                    // DRAM-full spill on re-persist : flip scope, write to SSD.
                     self.core.registry.flip_to_ssd(sig.session);
                     self.core.metrics.lock().unwrap().dram_spill_puts += 1;
                     self.append_one_ssd(sig.session, key, slot, payload)
@@ -388,7 +374,7 @@ impl FlatCakeEngine {
         chunk.sort_by_key(|(idx, _, _)| *idx);
         let n = chunk.len() as u32;
         let bb = self.block_bytes_of();
-        // SECURITY FIX (audit D-P4-2/High): persisted bytes must use each chunk
+        // persisted bytes must use each chunk
         // entry's REAL token_start. The previous positional formula
         // (first_ts + i*block_tokens) published phantom-token bytes under real
         // keys whenever the miss group was not token-consecutive (the normal
@@ -456,7 +442,7 @@ impl FlatCakeEngine {
         Ok(())
     }
 
-    /// Shared tail for dedup followers: accounting (audit item 13), unpin,
+    /// Shared tail for dedup followers: accounting , unpin,
     /// delivery.
     fn finish_deduped_get(
         &self,
@@ -538,7 +524,7 @@ impl FlatCakeEngine {
         self.core.cfg.block_bytes()
     }
 
-    /// Log an SSD publish record (audit item 2: after the payload write; DRAM
+    /// Log an SSD publish record (after the payload write; DRAM
     /// publishes are never logged).
     fn log_publish(&self, key: &BlockKey, gva: Gva) {
         if let Some(w) = self.core.recovery_log.as_ref() {
@@ -553,7 +539,7 @@ impl FlatCakeEngine {
         }
     }
 
-    /// Log an invalidate record (audit item 10: promotion/migration swaps must
+    /// Log an invalidate record: promotion/migration swaps must
     /// dead-log the previous SSD entry or replay resurrects freed extents).
     fn log_invalidate(&self, key: &BlockKey) {
         if let Some(w) = self.core.recovery_log.as_ref() {
@@ -886,7 +872,7 @@ impl KvEngine for FlatCakeEngine {
                                 );
                             }
                             Err(_) => {
-                                // DRAM-full spill (OQ-6): flip scope, block to SSD.
+                                // DRAM-full spill : flip scope, block to SSD.
                                 // The block MUST still be published (paper 3.2
                                 // publish-after-write applies to every medium --
                                 // A1 finding: an unpublished spill is invisible).
@@ -912,7 +898,7 @@ impl KvEngine for FlatCakeEngine {
                 let bt = self.core.cfg.block_tokens;
                 let layer_span = spec.n_blk as usize;
                 let total = spec.layers as usize * layer_span;
-                // Reserve index slots BEFORE the write; publish after (T3).
+                // Reserve index slots BEFORE the write; publish after .
                 let mut slots: Vec<Option<usize>> = Vec::with_capacity(total);
                 let mut keys: Vec<BlockKey> = Vec::with_capacity(total);
                 let mut index_full = false;
@@ -1019,7 +1005,7 @@ impl KvEngine for FlatCakeEngine {
         let mut recompute: Vec<(usize, BlockKey, u64)> = Vec::new();
         let mut payload = vec![0u8; self.block_bytes_of() as usize];
 
-        // Reader pins at resolution time, released at request end (D15). Hybrid
+        // Reader pins at resolution time, released at request end . Hybrid
         // requests span multiple owning scopes (e.g., a DRAM-pinned shared prompt
         // plus an SSD-resident session history); EVERY owning scope is pinned so
         // reclamation cannot free extents between lookup and read (A1 finding 2).
@@ -1168,7 +1154,7 @@ impl KvEngine for FlatCakeEngine {
                 blocks: map.iter().map(|(_, g)| *g).collect(),
                 size_bytes: map.len() as u64 * self.block_bytes_of(),
             };
-            // P4 dedup (audit items 11-13): fingerprint = SORTED SSD GVA list
+            // Dedup fingerprint: sorted SSD GVA list
             // (order-insensitive exact match; equal sets => identical byte
             // spans => one read serves both). Leader slot holds the map;
             // followers wait on the leader's condvar and merge their own out[]
@@ -1284,7 +1270,7 @@ impl KvEngine for FlatCakeEngine {
             drop(guard);
             self.core.slots.lock().unwrap().remove(&id);
             // Reconcile: blocks the worker could not deliver (I/O error or shutdown
-            // race) fall back to recompute — never silently missing (A2 finding).
+            // race) fall back to recompute — never silently missing (
             if worker_err.is_some() || !self.running.load(Ordering::SeqCst) {
                 for (idx, _) in map.iter() {
                     if out[*idx].is_none() && !counted[*idx] {
@@ -1453,7 +1439,7 @@ impl KvEngine for FlatCakeEngine {
 
 /// DRAM-Ready dispatcher (paper Fig. 3(a)❷): serves pure-DRAM requests in arrival
 /// order and completes re-admitted SSD requests (markers) in their ORIGINAL
-/// arrival order (T9).
+/// arrival order .
 fn dram_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>) {
     while running.load(Ordering::SeqCst) {
         match core.scheduler.pop_dram() {
@@ -1489,7 +1475,7 @@ fn dram_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>) {
 
 /// SSD prefetch worker (paper §3.3): HRRN-selected; coalesced bounded-window reads;
 /// metrics merged from a LOCAL counter set (the callback must not re-lock core
-/// metrics while read_ranges holds its `&mut Metrics` — A2 finding M3 deadlock);
+/// metrics while read_ranges holds its `&mut Metrics` — 
 /// completion marker re-admitted by ORIGINAL arrival_ts.
 fn ssd_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>, reader: &mut Reader) {
     while running.load(Ordering::SeqCst) {
@@ -1545,7 +1531,7 @@ fn ssd_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>, reader: &mut Read
                     // A1 finding 3).
                     m.prep_samples.push(t0.elapsed().as_micros() as u64);
                 }
-                // Re-admit completion marker by ORIGINAL arrival_ts (T9): a dram
+                // Re-admit completion marker by ORIGINAL arrival_ts : a dram
                 // worker completes this request in arrival order.
                 core.scheduler.readmit(Request {
                     id: req.id,
@@ -1559,7 +1545,7 @@ fn ssd_worker(core: Arc<EngineCore>, running: Arc<AtomicBool>, reader: &mut Read
     }
 }
 
-/// One recovery-log record (audit item 2/10): SSD publish or invalidate.
+/// One recovery-log record: SSD publish or invalidate.
 enum LogRec {
     Pub(BlockKey, Gva),
     Invalidate(BlockKey),
