@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable (gnu)
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
+
+      - name: Build (warnings as errors)
+        run: cargo build --release -- -D warnings
+
+      - name: Test (all suites)
+        run: cargo test --release -- -D warnings
+
+      - name: Selftest
+        run: ./target/release/fckv.exe selftest
+
+      - name: Demo
+        run: ./target/release/fckv.exe demo

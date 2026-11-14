@@ -28,6 +28,7 @@ pub struct ReplayOutput {
     pub elapsed_s: f64,
     pub integrity_failures: u64,
     pub requests_issued: u64,
+    pub op_errors: Vec<String>,
 }
 
 struct Shared {
@@ -103,6 +104,7 @@ pub fn run(
     let integrity = Arc::new(AtomicU64::new(0));
     let issued = Arc::new(AtomicU64::new(0));
     let lat: Arc<Mutex<Vec<u64>>> = Arc::new(Mutex::new(Vec::new()));
+    let errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mut handles = Vec::with_capacity(REPLAY_WORKERS);
     for _ in 0..REPLAY_WORKERS {
@@ -110,6 +112,8 @@ pub fn run(
         let engine = engine.clone();
         let integrity = integrity.clone();
         let lat = lat.clone();
+        let errors = errors.clone();
+        let errors = errors.clone();
         handles.push(std::thread::spawn(move || loop {
             let job = {
                 let mut q = shared.queue.lock().unwrap();
@@ -123,23 +127,25 @@ pub fn run(
             match job {
                 Job::Shutdown => break,
                 Job::Put(spec) => {
-                    engine.put_batch(&spec).expect("put_batch failed");
+                    if let Err(e) = engine.put_batch(&spec) {
+                        errors.lock().unwrap().push(format!("put: {e}"));
+                    }
                     shared.depth.fetch_sub(1, Ordering::SeqCst);
                     // Wake the issue thread if it is parked on queue_cap backpressure.
                     shared.cv.notify_all();
                 }
                 Job::Get(spec, t_issue) => {
                     let mut payload = vec![0u8; bb as usize];
-                    engine
-                        .get_request(&spec, &mut |idx, bytes| {
-                            let b = &spec.blocks[idx];
-                            let seed = spec.seed_by_block[idx];
-                            payload_fill(b.session, b.layer, b.token_start, seed, &mut payload);
-                            if bytes != payload.as_slice() {
-                                integrity.fetch_add(1, Ordering::SeqCst);
-                            }
-                        })
-                        .expect("get_request failed");
+                    if let Err(e) = engine.get_request(&spec, &mut |idx, bytes| {
+                        let b = &spec.blocks[idx];
+                        let seed = spec.seed_by_block[idx];
+                        payload_fill(b.session, b.layer, b.token_start, seed, &mut payload);
+                        if bytes != payload.as_slice() {
+                            integrity.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }) {
+                        errors.lock().unwrap().push(format!("get: {e}"));
+                    }
                     lat.lock().unwrap().push(t_issue.elapsed().as_micros() as u64);
                     shared.depth.fetch_sub(1, Ordering::SeqCst);
                     shared.cv.notify_all();
@@ -264,6 +270,7 @@ pub fn run(
     m.lat_samples = std::mem::take(&mut *lat.lock().unwrap());
     m.delivered_requests = issued.load(Ordering::SeqCst);
     let integrity_failures = integrity.load(Ordering::SeqCst);
+    let op_errors = std::mem::take(&mut *errors.lock().unwrap());
     if let Some(w) = csv.as_mut() {
         w.finish();
     }
@@ -272,6 +279,7 @@ pub fn run(
         elapsed_s: t0.elapsed().as_secs_f64(),
         integrity_failures,
         requests_issued: issued.load(Ordering::SeqCst),
+        op_errors,
     }
 }
 

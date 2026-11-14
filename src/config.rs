@@ -57,6 +57,9 @@ pub struct Config {
     /// found by the multi-round mixed-medium stress test (a follower can
     /// deliver another block's bytes under interleaving); see P4_REPORT.
     pub dedup_enabled: u64,
+    /// P4 audit F4: cap on total scope files (each reserves gpu_file_bytes of
+    /// disk). Clean StorageFull error beyond the cap instead of silent fill.
+    pub max_scope_files: u64,
 }
 
 impl Config {
@@ -103,6 +106,7 @@ impl Default for Config {
             recovery_log: 1,
             write_coalesce_bytes: 65536,
             dedup_enabled: 0,
+            max_scope_files: 4096,
         }
     }
 }
@@ -201,10 +205,35 @@ pub fn load(path: &str) -> Result<Config, String> {
     u("recovery_log", &mut cfg.recovery_log, 0, 2)?;
     u("write_coalesce_bytes", &mut cfg.write_coalesce_bytes, 4096, 16 << 20)?;
     u("dedup_enabled", &mut cfg.dedup_enabled, 0, 1)?;
+    u("max_scope_files", &mut cfg.max_scope_files, 1, 1 << 16)?;
     u("csv_window_us", &mut cfg.csv_window_us, 1000, 60_000_000)?;
 
     if cfg.gpu_file_bytes.count_ones() != 1 {
         return Err("gpu_file_bytes must be a power of two (SSD offset packing)".into());
+    }
+    // Product bound (audit F5): block_tokens x bytes_per_token are independently
+    // bounded but their product can reach 4 GiB; cap it at 1 MiB per block.
+    // Audit D-A3: unaligned block sizes trip NO_BUFFERING alignment asserts
+    // at read time; reject at load with a clear error instead.
+    if (cfg.block_tokens * cfg.bytes_per_token) % 4096 != 0 {
+        return Err(format!(
+            "block_tokens x bytes_per_token = {} is not a multiple of 4096 (NO_BUFFERING alignment)",
+            cfg.block_tokens * cfg.bytes_per_token
+        ));
+    }
+    if cfg.block_tokens * cfg.bytes_per_token > 1 << 20 {
+        return Err(format!(
+            "block_tokens x bytes_per_token = {} exceeds the 1 MiB block cap",
+            cfg.block_tokens * cfg.bytes_per_token
+        ));
+    }
+    // Product bound (audit F5): block_tokens x bytes_per_token independently
+    // bounded can still produce a 4 GiB block. Cap the product at 1 MiB.
+    if cfg.block_tokens * cfg.bytes_per_token > 1 << 20 {
+        return Err(format!(
+            "block_tokens x bytes_per_token = {} exceeds the 1 MiB block cap",
+            cfg.block_tokens * cfg.bytes_per_token
+        ));
     }
     if cfg.dram_low_watermark >= cfg.dram_high_watermark
         || cfg.ssd_low_watermark >= cfg.ssd_high_watermark
@@ -225,7 +254,7 @@ pub fn load(path: &str) -> Result<Config, String> {
                 "placement_policy", "adaptive_k", "adaptive_h_min",
                 "migration_enabled", "eviction_policy", "migration_cooldown_ms",
                 "migration_max_per_get", "recovery_log", "write_coalesce_bytes",
-                "dedup_enabled",
+                "dedup_enabled", "max_scope_files",
             ]
             .contains(&k.as_str())
         })

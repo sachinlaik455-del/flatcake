@@ -13,4 +13,5 @@ pub mod replay;
 pub mod results;
 pub mod mas;
 pub mod engine;
+pub mod platform;
 

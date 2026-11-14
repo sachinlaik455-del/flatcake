@@ -302,10 +302,11 @@ impl FlatCakeEngine {
                 &mut m,
             );
             m.ssd_over_high_watermark_us += t_reclaim.elapsed().as_micros() as u64;
-            drop(m);
-            // Detach reclaimed scopes from the layout: any session we placed on SSD
-            // that no longer exists in the registry must be released, or its stale
-            // layout entry could append into a recycled file (A2 M2).
+        }
+        // Detach reclaimed scopes from the layout (audit D-A5): runs after BOTH
+        // reclaim passes - a mixed DRAM+SSD scope removed by the DRAM pass must
+        // not leave a stale layout entry that a later put could append into.
+        {
             let mut ssd_sessions = self.core.ssd_sessions.lock().unwrap();
             for session in ssd_sessions.clone().iter() {
                 if !self.core.registry.scope_exists(*session) {
@@ -517,11 +518,16 @@ impl FlatCakeEngine {
         self.core.registry.add_key(session, *key);
         self.core.ssd_sessions.lock().unwrap().insert(session);
         self.core.metrics.lock().unwrap().physical_write_bytes += bb;
+        self.core.metrics.lock().unwrap().logical_write_bytes += bb;
         Ok(())
     }
 
     fn block_bytes_of(&self) -> u64 {
         self.core.cfg.block_bytes()
+    }
+
+    pub fn config_ref(&self) -> &Config {
+        &self.core.cfg
     }
 
     /// Log an SSD publish record (after the payload write; DRAM
@@ -635,9 +641,13 @@ impl FlatCakeEngine {
         self.core.arena.write(off, bytes);
         let new_gva = Gva::encode(0, 0, off).unwrap();
         if !self.publish_swap(key, new_gva) {
-            self.core.arena.free_extent(off, bb);
+            // The slot value may hold our store even though the CAS lost
+            // (store and CAS are separate steps); freeing the extent could
+            // free a location the index still resolves to. Leak it instead —
+            // bounded by promotion frequency, reclaimed with the scope.
             return false;
         }
+        self.log_publish(key, new_gva);
         self.core.registry.add_dram_extent(key.session, off, bb);
         let fr = self.core.layout.resolve(expected, bb);
         if self
@@ -703,6 +713,9 @@ impl FlatCakeEngine {
             v.sort_by_key(|&(last, _, _, _)| last);
             v
         };
+        // Lock order: migration_lock before dram_blocks (promote_one takes the
+        // same order); taking db first would invert it against promote_one.
+        let _mig = self.core.migration_lock.lock().unwrap();
         let mut db = self.core.dram_blocks.lock().unwrap();
         let mut freed = 0u64;
         let mut budget = self.core.cfg.migration_max_per_get;
@@ -720,7 +733,6 @@ impl FlatCakeEngine {
             }
             let mut payload = vec![0u8; len as usize];
             self.core.arena.read(off, len, &mut payload);
-            let _mig = self.core.migration_lock.lock().unwrap();
             match self.core.index.lookup(&key) {
                 Lookup::Hit(g) if !g.is_ssd() && g.offset() == off => {}
                 _ => {
@@ -795,9 +807,18 @@ impl FlatCakeEngine {
             }
         }
         if keep.len() > PENDING_FREE_CAP {
-            // Pathological (everything pinned forever): free all rather than
-            // grow unbounded. Documented fallback; bytes are immutable so the
-            // only exposure is pool reuse overlapping a straggler read.
+            // Over the cap: drop entries whose scope is already gone (no
+            // reader/writer can exist), then - only if still over - free the
+            // rest as the documented last-resort fallback.
+            keep.retain(|f| {
+                let session = match &f {
+                    PendingFree::Dram { session, .. } => *session,
+                    PendingFree::Ssd { session, .. } => *session,
+                };
+                self.core.registry.scope_exists(session)
+                    && (self.core.registry.active_readers(session) != 0
+                        || self.core.registry.active_writers(session) != 0)
+            });
             for f in keep.drain(..) {
                 match f {
                     PendingFree::Dram { off, len, .. } => {
@@ -822,6 +843,10 @@ impl FlatCakeEngine {
         if !heat.is_empty() {
             heat.retain(|k, _| self.core.registry.scope_exists(k.session));
         }
+        let mut served = self.core.gets_served.lock().unwrap();
+        if !served.is_empty() {
+            served.retain(|s, _| self.core.registry.scope_exists(*s));
+        }
     }
 }
 
@@ -839,7 +864,6 @@ impl KvEngine for FlatCakeEngine {
         let medium = self.scope_medium(&sig);
         // Writer pin held for the whole batch (D15: PENDING writes pin their scope).
         self.pin_writer_retry(&sig)?;
-        self.core.metrics.lock().unwrap().logical_write_bytes += n * bb;
         let mut payload = vec![0u8; bb as usize];
         let mut result = Ok(());
 
@@ -864,6 +888,7 @@ impl KvEngine for FlatCakeEngine {
                                 self.core.arena.write(off, &payload);
                                 let gva = Gva::encode(0, 0, off).unwrap();
                                 self.core.index.publish(slot, gva);
+                                self.core.metrics.lock().unwrap().logical_write_bytes += bb;
                                 self.core.registry.add_dram_extent(spec.session, off, bb);
                                 self.core.registry.add_key(spec.session, key);
                                 self.core.dram_blocks.lock().unwrap().insert(
@@ -959,6 +984,7 @@ impl KvEngine for FlatCakeEngine {
                         }
                         self.core.ssd_sessions.lock().unwrap().insert(spec.session);
                         self.core.metrics.lock().unwrap().physical_write_bytes += n * bb;
+                        self.core.metrics.lock().unwrap().logical_write_bytes += n * bb;
                     }
                     Ok(_) => {
                         result = Err(io::Error::new(
@@ -1064,10 +1090,11 @@ impl KvEngine for FlatCakeEngine {
         }
 
         // Recompute path (inline on the calling thread; modeled cost + re-persist).
-        // P4 write coalescing: batch per (owning session, layer) — one SSD
+        // P4 write coalescing: batch per (owning session, layer) - one SSD
         // append per group instead of one per small block. Ownership follows
         // the KEY's session: a recomputed shared-prompt block belongs to
-        // session 1, never to the requester (P4 ownership fix).
+        // session 1, never to the requester (ownership fix).
+        let mut first_recompute_err: Option<io::Error> = None;
         {
             let mut groups: HashMap<(u64, u32), Vec<(usize, BlockKey, u64)>> = HashMap::new();
             for (idx, b, seed) in &recompute {
@@ -1104,15 +1131,29 @@ impl KvEngine for FlatCakeEngine {
                         let max_chunk_blocks =
                             (self.core.cfg.write_coalesce_bytes.max(bb) / bb) as u32;
                         let mut chunk: Vec<(usize, BlockKey, u64)> = Vec::new();
+                        // A re-persist error must not skip the reader-pin
+                        // release (audit D-A2): capture, deliver what the
+                        // flush produced (failed blocks stay None -> counted
+                        // as misses), then report after delivery.
+                        let mut chunk_err: Option<io::Error> = None;
                         for item in group {
                             chunk.push(item);
                             if chunk.len() as u32 >= max_chunk_blocks {
-                                self.flush_recompute_chunk(
+                                if let Err(e) = self.flush_recompute_chunk(
                                     session, layer, &mut chunk, &mut payload, &mut out,
-                                )?;
+                                ) {
+                                    chunk_err.get_or_insert(e);
+                                }
                             }
                         }
-                        self.flush_recompute_chunk(session, layer, &mut chunk, &mut payload, &mut out)?;
+                        if let Err(e) =
+                            self.flush_recompute_chunk(session, layer, &mut chunk, &mut payload, &mut out)
+                        {
+                            chunk_err.get_or_insert(e);
+                        }
+                        if let Some(e) = chunk_err {
+                            first_recompute_err.get_or_insert(e);
+                        }
                     }
                 }
             }
@@ -1405,6 +1446,9 @@ impl KvEngine for FlatCakeEngine {
         }
 
         self.flush_log();
+        if let Some(e) = first_recompute_err {
+            return Err(e);
+        }
         let mut m = self.core.metrics.lock().unwrap();
         m.logical_block_gets += n_blocks as u64;
         m.delivered_requests += 1;

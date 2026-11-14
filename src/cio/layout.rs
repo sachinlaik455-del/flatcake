@@ -177,7 +177,20 @@ impl Inner {
     /// the next sequence number. Called with the outer lock held; only
     /// allocator metadata ops plus (rare, beyond-pool) file pre-allocation
     /// happen here — never payload data I/O (ARCHITECTURE §3 invariant).
-    fn alloc_file(&mut self, dir: &Path, file_bytes: u64) -> io::Result<u32> {
+    fn alloc_file(
+        &mut self,
+        dir: &Path,
+        file_bytes: u64,
+        max_files: u64,
+    ) -> io::Result<u32> {
+        if self.next_seq as u64 >= max_files {
+            return Err(io::Error::new(
+                io::ErrorKind::StorageFull,
+                format!(
+                    "scope-file cap reached ({max_files} files x {file_bytes} B); free scopes or raise max_scope_files"
+                ),
+            ));
+        }
         if let Some(seq) = self.free_files.pop() {
             let st = self.files.get(&seq).expect("recycled file has state");
             let mut m = st.meta.lock().unwrap();
@@ -209,6 +222,9 @@ pub struct SsdLayoutImpl {
     block_bytes: u64,
     inner: Mutex<Inner>,
     logical: AtomicU64,
+    /// Cap on total scope files (audit F4): each pre-allocates gpu_file_bytes
+    /// of reserved disk; unbounded creation would exhaust the volume.
+    max_files: u64,
 }
 
 impl SsdLayoutImpl {
@@ -229,6 +245,7 @@ impl SsdLayoutImpl {
             dir,
             file_bytes: cfg.gpu_file_bytes,
             block_bytes: cfg.block_bytes(),
+            max_files: cfg.max_scope_files.max(cfg.gpu_file_pool),
             inner: Mutex::new(Inner {
                 sessions: HashMap::new(),
                 files: HashMap::new(),
@@ -276,7 +293,11 @@ impl SsdLayoutImpl {
                 .map(|s| (s.file_seq, s.append_off));
             let (file_seq, cur, is_new) = match existing {
                 Some((fs, off)) => (fs, off, false),
-                None => (inner.alloc_file(&self.dir, self.file_bytes)?, 0, true),
+                None => (
+                    inner.alloc_file(&self.dir, self.file_bytes, self.max_files)?,
+                    0,
+                    true,
+                ),
             };
             let mut p = cur;
             let mut seg_starts = Vec::with_capacity(layers as usize);
@@ -400,6 +421,9 @@ impl SsdLayoutImpl {
                 }),
             );
         }
+        // Audit D-A4: advance next_seq past every adopted file_seq, or the
+        // next alloc_file re-issues the seq and overwrites recovered data.
+        inner.next_seq = inner.next_seq.max(file_seq + 1);
         inner.sessions.insert(
             session,
             SessionScope {

@@ -76,6 +76,17 @@ impl TraceRecord {
             let e = rest.find('"').ok_or("bad op")?;
             rest[..e].to_string()
         };
+        // Hostile-trace bound (audit F2): a single record expands to
+        // layers x n_blk blocks in memory; cap the expansion.
+        let layers_n = get("layers")?;
+        let nblk_n = get("n_blk")?;
+        if layers_n == 0 || nblk_n == 0 || layers_n * nblk_n > 1 << 16 {
+            return Err(format!(
+                "record expands to {} blocks (layers={layers_n}, n_blk={nblk_n}); cap is {}",
+                layers_n * nblk_n,
+                1 << 16
+            ));
+        }
         Ok(TraceRecord {
             ts_us: get("ts_us")?,
             op: match opv.as_str() {
@@ -85,9 +96,9 @@ impl TraceRecord {
             },
             session: get("session")?,
             turn: get("turn")?,
-            layers: get("layers")? as u32,
+            layers: layers_n as u32,
             start_blk: get("start_blk")?,
-            n_blk: get("n_blk")? as u32,
+            n_blk: nblk_n as u32,
             shared: get("shared")? as u32,
             reply_tokens: get("reply_tokens")?,
             ctx_tokens: get("ctx_tokens")?,
