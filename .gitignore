@@ -3,5 +3,7 @@ results/
 target/
 target-p3/
 target-p4/
+target-val-a/
+target-val-c/
 target-audit/
 *.log
