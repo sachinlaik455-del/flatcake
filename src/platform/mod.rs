@@ -6,6 +6,9 @@ pub mod connector;
 pub mod project;
 pub mod registry;
 pub mod service;
+pub mod compat;
+pub mod adapters;
+pub mod namespace;
 pub mod telemetry;
 
 pub const PROTOCOL_VERSION: u32 = 1;
