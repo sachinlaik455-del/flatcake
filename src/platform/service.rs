@@ -83,32 +83,30 @@ fn handle_connection(stream: TcpStream, state: Arc<ServiceState>) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let mut reader = BufReader::new(stream.try_clone().expect("clone tcp stream"));
+    // Protocol detection: read the first line. HTTP methods indicate a REST
+    // request; otherwise fall through to the JSON-line protocol.
+    let mut first_line = String::new();
+    if reader.read_line(&mut first_line).is_err() {
+        return;
+    }
+    let fl = first_line.trim().to_string();
+    if fl.starts_with("GET ") || fl.starts_with("POST ") || fl.starts_with("PUT ")
+        || fl.starts_with("DELETE ") || fl.starts_with("HEAD ")
+    {
+        let st = state.clone();
+        super::http_api::handle_http_rest(reader, stream, &fl, st);
+        return;
+    }
+    // JSON-line protocol (P1): token is in the JSON body.
+    let body = fl.replace(&state.token, "");
+    if body.trim().is_empty() {
+        return;
+    }
+    let resp = handle_request(&state, body.trim());
     let mut writer = BufWriter::new(stream);
-    loop {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(n) if n > MAX_LINE => {
-                let _ = writeln!(writer, "{{\"error\":\"request too large\"}}");
-                break;
-            }
-            Ok(_) => {}
-        }
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if !trimmed.contains(&state.token) {
-            let _ = writeln!(writer, "{{\"error\":\"unauthorized: token mismatch\"}}");
-            break;
-        }
-        let body = trimmed.replace(&state.token, "");
-        let resp = handle_request(&state, body.trim());
-        let _ = writeln!(writer, "{resp}");
-        if body.contains("\"shutdown\"") {
-            state.running.store(false, Ordering::SeqCst);
-            break;
-        }
+    let _ = writeln!(writer, "{resp}");
+    if body.contains("\"shutdown\"") {
+        state.running.store(false, Ordering::SeqCst);
     }
 }
 

@@ -6,9 +6,11 @@ pub mod connector;
 pub mod project;
 pub mod registry;
 pub mod service;
+pub use service::ServiceState;
 pub mod compat;
 pub mod adapters;
 pub mod namespace;
+pub mod http_api;
 pub mod telemetry;
 
 pub const PROTOCOL_VERSION: u32 = 1;
