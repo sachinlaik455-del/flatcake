@@ -3,6 +3,8 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 fn discovery_path(cfg: &fckv::config::Config) -> String {
     format!("{}/flatcake-service.json", cfg.ssd_dir)
@@ -104,10 +106,27 @@ fn load_cfg() -> fckv::config::Config {
 }
 
 fn serve(_args: &[String]) {
-    // P1: the service is exercised by the engine tests. A standalone daemon
-    // is deferred to the platform P2 phase (service process lifecycle).
-    eprintln!("flatcake serve: not yet available in this phase; run `cargo test --release --test platform_tests` for coverage");
-    std::process::exit(1);
+    let cfg = load_cfg();
+    let project = fckv::platform::project::project_id(None);
+    let (listener, state, token, port) =
+        match fckv::platform::service::bind(&cfg, project.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("service bind failed: {e}");
+                std::process::exit(1);
+            }
+        };
+    let discovery = format!("{}/flatcake-service.json", cfg.ssd_dir);
+    if let Err(e) = fckv::platform::service::write_discovery(&discovery, port, &token) {
+        eprintln!("discovery write failed: {e}");
+        std::process::exit(1);
+    }
+    eprintln!("flatcake service: project={project} port={port} discovery={discovery}");
+    eprintln!("press Ctrl-C to stop");
+    fckv::platform::service::accept_loop(listener, state.clone(), Arc::new(
+        std::sync::atomic::AtomicBool::new(true),
+    ));
+    let _ = state;
 }
 
 fn pretty(s: String) -> String {
