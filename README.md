@@ -70,3 +70,7 @@ Protocol: `docs/BENCHMARK_METHODOLOGY.md` (cold start, no warm-up, symmetric mis
 **Complete and audited.** 111 tests, 0 failures (warnings-as-errors clean); `docs/final-security-audit.md` verdict: PASS WITH FINDINGS. Security findings and their remediations are recorded there and in `docs/LIMITATIONS.md`.
 
 Key results (Level-B, this laptop): FlatCake sustains a 100% delivered hit rate at every load vs 88.8–99.7% for the tiered baseline; 44–105× fewer physical read ops; write amplification 0.995× vs 3.27×; byte-exact integrity across all suites. See `docs/RESULTS.md`.
+
+## License
+
+Dual-licensed under the [MIT](LICENSE) and [GPL-3.0-or-later](LICENSE-GPL) licenses: you may use, modify, and redistribute this software under **either** license, at your option (`SPDX-License-Identifier: MIT OR GPL-3.0-or-later`).
