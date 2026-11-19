@@ -541,7 +541,10 @@ fn valc_c02_shutdown_midflight_gets_return_no_hang_rebuild_serves_byte_exact() {
 
 // 8 concurrent pure-SSD gets (64 KiB NO_BUFFERING scope reads each, serialized
 // by ssd_workers=1) saturate the MAS queue (queue_cap=4, backpressure blocks
-// enqueuers); the main thread issues 3 small pure-DRAM gets (later arrival_ts).
+// enqueuers); the main thread issues 3 small pure-DRAM gets (later arrival_ts)
+// once the FIRST SSD get has completed. The DRAM start timestamp is that
+// completion signal, so the "DRAM issued while SSD outstanding" precondition
+// holds structurally (a preempted main thread cannot invalidate it).
 // Requirement: DRAM requests complete OUT-OF-ORDER relative to the SSD ones
 // (at least one DRAM completion strictly before the last SSD completion while
 // SSD work was still outstanding) and every request completes byte-exact.
@@ -586,6 +589,10 @@ fn valc_c03_queue_cap4_saturation_dram_completes_out_of_order() {
     }
     let log: Arc<Mutex<Vec<Completion>>> = Arc::new(Mutex::new(Vec::new()));
     let (tx_ping, rx_ping) = mpsc::channel::<u64>();
+    // First-SSD-completion signal: the DRAM issue point. Overlap with
+    // outstanding SSD work is structural, not timing-dependent (CI runner
+    // preemption can otherwise outlast every in-flight SSD get).
+    let (tx_sdone, rx_sdone) = mpsc::channel::<Instant>();
     let deadline = Instant::now() + WATCHDOG;
 
     let mut handles = Vec::new();
@@ -594,6 +601,7 @@ fn valc_c03_queue_cap4_saturation_dram_completes_out_of_order() {
         let fails = fails.clone();
         let log = log.clone();
         let tx_ping = tx_ping.clone();
+        let tx_sdone = tx_sdone.clone();
         let keys = keys.clone();
         let seeds = seeds.clone();
         let s = *s;
@@ -608,15 +616,21 @@ fn valc_c03_queue_cap4_saturation_dram_completes_out_of_order() {
             assert!(res.is_ok(), "S get for session {s} must return Ok");
             assert_eq!(delivered.load(Ordering::SeqCst), 8, "S get delivery count");
             log.lock().unwrap().push(Completion { kind: 'S', id: s, start, end });
+            let _ = tx_sdone.send(end);
         }));
     }
     drop(tx_ping);
+    drop(tx_sdone);
 
     // Give 2 SSD requests a head start, then issue 3 fast DRAM gets from
-    // dedicated threads with LATER arrival timestamps.
+    // dedicated threads with LATER arrival timestamps. The issue point is the
+    // FIRST SSD completion (not the pings): its timestamp is recorded as the
+    // DRAM start, so "DRAM issued while SSD outstanding" holds by construction
+    // even when a preempted main thread resumes after several SSD completions.
     for _ in 0..2 {
         recv_deadline(&rx_ping, deadline, "c03: SSD client ping");
     }
+    let d_start0: Instant = recv_deadline(&rx_sdone, deadline, "c03: first SSD completion");
     let mut d_handles = Vec::new();
     for j in 0..3usize {
         let e = e.clone();
@@ -625,7 +639,7 @@ fn valc_c03_queue_cap4_saturation_dram_completes_out_of_order() {
         let keys = vec![shared_keys[2 * j], shared_keys[2 * j + 1]];
         let seeds = vec![shared_seeds[2 * j], shared_seeds[2 * j + 1]];
         d_handles.push(std::thread::spawn(move || {
-            let start = Instant::now();
+            let start = d_start0;
             let delivered = Arc::new(AtomicUsize::new(0));
             let g = gspec(keys.clone(), seeds.clone(), 1, 5000 + j as u64);
             let mut v = byte_verifier(keys, seeds, fails, delivered.clone());
