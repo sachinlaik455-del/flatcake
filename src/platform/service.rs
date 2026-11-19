@@ -8,7 +8,7 @@ use super::telemetry::{EventKind, Telemetry};
 use crate::config::Config;
 use crate::engine::FlatCakeEngine;
 use crate::engine_api::KvEngine;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -85,8 +85,11 @@ fn handle_connection(stream: TcpStream, state: Arc<ServiceState>) {
     let mut reader = BufReader::new(stream.try_clone().expect("clone tcp stream"));
     // Protocol detection: read the first line. HTTP methods indicate a REST
     // request; otherwise fall through to the JSON-line protocol.
+    // Bounded read: a line that exceeds MAX_LINE or is not newline-terminated
+    // within it is an unbounded/malformed request and is dropped (F2 class).
     let mut first_line = String::new();
-    if reader.read_line(&mut first_line).is_err() {
+    let mut limited = (&mut reader).take(MAX_LINE as u64);
+    if limited.read_line(&mut first_line).is_err() || !first_line.ends_with('\n') {
         return;
     }
     let fl = first_line.trim().to_string();

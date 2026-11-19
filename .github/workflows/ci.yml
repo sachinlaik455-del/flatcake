@@ -12,6 +12,9 @@ permissions:
 jobs:
   build-test:
     runs-on: windows-latest
+    env:
+      # Treat warnings as errors for every rustc invocation (lib + both bins).
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v4
 
@@ -21,10 +24,10 @@ jobs:
           rustup default stable-x86_64-pc-windows-gnu
 
       - name: Build (warnings as errors)
-        run: cargo build --release -- -D warnings
+        run: cargo build --release
 
       - name: Test (all suites)
-        run: cargo test --release -- -D warnings
+        run: cargo test --release
 
       - name: Selftest
         run: ./target/release/fckv.exe selftest

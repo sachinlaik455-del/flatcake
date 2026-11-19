@@ -3,7 +3,6 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 fn discovery_path(cfg: &fckv::config::Config) -> String {
