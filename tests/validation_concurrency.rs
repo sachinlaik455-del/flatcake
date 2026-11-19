@@ -536,27 +536,36 @@ fn valc_c02_shutdown_midflight_gets_return_no_hang_rebuild_serves_byte_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// c03 — queue_cap=4 saturation: no head-of-line blocking for DRAM requests
+// c03 — SSD-pipeline saturation: no head-of-line blocking for DRAM requests
 // ---------------------------------------------------------------------------
 
-// 8 concurrent pure-SSD gets (64 KiB NO_BUFFERING scope reads each, serialized
-// by ssd_workers=1) saturate the MAS queue (queue_cap=4, backpressure blocks
-// enqueuers); the main thread issues 3 small pure-DRAM gets (later arrival_ts)
-// once the FIRST SSD get has completed. The DRAM start timestamp is that
-// completion signal, so the "DRAM issued while SSD outstanding" precondition
-// holds structurally (a preempted main thread cannot invalidate it).
+// 8 concurrent pure-SSD gets (64 KiB NO_BUFFERING scope reads each) saturate
+// the SSD pipeline: ssd_workers=1 serializes them, so the SSD drain spans
+// ~8 service periods. queue_cap=12 (>= 8 SSD + 3 DRAM) keeps DRAM admission
+// off the shared backpressure bound — with a combined cap (scheduler.rs) the
+// DRAM enqueuers would have to win a condvar race against blocked SSD
+// enqueuers, which is not a guaranteed property. The main thread issues
+// 3 small pure-DRAM gets (later arrival_ts) once the FIRST SSD get has
+// completed; the DRAM start timestamp is that completion signal, so the
+// "DRAM issued while SSD outstanding" precondition holds structurally
+// (a preempted main thread cannot invalidate it).
 // Requirement: DRAM requests complete OUT-OF-ORDER relative to the SSD ones
 // (at least one DRAM completion strictly before the last SSD completion while
 // SSD work was still outstanding) and every request completes byte-exact.
 #[test]
-fn valc_c03_queue_cap4_saturation_dram_completes_out_of_order() {
+fn valc_c03_ssd_saturation_dram_completes_out_of_order() {
     let dir = valc_dir("hol");
     let mut cfg = valc_cfg("hol");
     cfg.ssd_dir = dir.clone();
     cfg.dram_pool_bytes = 256 * 1024;
     cfg.gpu_file_pool = 8;
     cfg.ssd_high_watermark = 0.95; // 512 KiB used of 2 MiB: no SSD reclaim mid-test
-    cfg.queue_cap = 4;
+    // 12 >= 8 SSD + 3 DRAM: DRAM admission never blocks on the shared
+    // backpressure bound (dram.len() + ssd.len() >= cap, scheduler.rs). The
+    // no-HOL property under test lives in the dual-queue scheduling, not in
+    // admission-race fairness; the SSD pipeline stays saturated via
+    // ssd_workers=1.
+    cfg.queue_cap = 12;
     cfg.ssd_workers = 1;
     cfg.dram_workers = 1;
     cfg.recovery_log = 0;
