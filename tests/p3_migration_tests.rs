@@ -437,7 +437,16 @@ fn p3_default_config_is_paper_faithful_write_once() {
 // parallel readers while promotion/demotion run.
 #[test]
 fn p3_concurrent_migration_integrity() {
-    let cfg = cfg("conc", |_| {});
+    // Scope-file sizing: session-2 re-lands (promote→demote cycles) are capped
+    // by migration_max_per_get × total gets = 2 × (4 threads × 15) = 120 blocks
+    // on top of the initial 16, i.e. ≤ 544 KiB of scope-file space with no
+    // in-file reuse (OQ-11/D20). The default 256 KiB file made that bound a
+    // load-dependent race (promote/demote interleaving under suite contention
+    // could exceed the file). 1 MiB makes the OQ-11 guard provably unreachable
+    // for this workload while preserving the migration coverage.
+    let cfg = cfg("conc", |c| {
+        c.gpu_file_bytes = 1024 * 1024;
+    });
     let e = Arc::new(FlatCakeEngine::new(&cfg).unwrap());
     let bb = cfg.block_bytes();
     let p = sess_put(2, 1, 2, 0, 8, 77);
