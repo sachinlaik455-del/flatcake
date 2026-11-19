@@ -7,3 +7,5 @@ target-val-a/
 target-val-c/
 target-audit/
 *.log
+.research/
+interference/
