@@ -2,6 +2,8 @@
 name = "fckv"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR GPL-3.0-or-later"
+repository = "https://github.com/sachinlaik455-del/flatcake"
 
 # Zero external dependencies by design (docs/ARCHITECTURE.md §1).
 
